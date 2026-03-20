@@ -1,14 +1,20 @@
 # LaREST Reference Configuration
 #
 # This file documents all available settings. Copy sections into your config.toml
-# and adjust as needed. Settings not present in config.toml are left to each
-# tool's own built-in defaults, except for the required keys marked below.
+# and adjust as needed. User settings are deep-merged on top of the built-in
+# defaults in src/larest/defaults.toml — only the keys you set are required.
 #
-# Required keys (LaREST reads these directly in Python, they MUST be present):
-#   [logging]          — full section required by get_logger()
-#   [rdkit]            — conformer_box_size, mmff, mmff_iters, align_iters, precision
-#   [xtb]              — etemp (used to compute S = (H - G) / T)
-#   [censo.general]    — temperature (used to compute S = (H - G) / T)
+# The only value that MUST be set by the user (no safe default exists):
+#   [censo.paths] orcaversion — must match your installed ORCA version
+
+# PARALLELISATION -------
+# n_cores is a single top-level setting applied to all stages.
+# It is propagated to [rdkit].n_cores, [xtb].parallel, [crest.confgen].T,
+# [crest.entropy].T, and [censo.cli].maxcores unless those keys are
+# explicitly set in the user config.
+
+# [parallelisation]
+# n_cores = 8           # cores used by all stages (default: 1)
 
 # LOGGING -----------
 

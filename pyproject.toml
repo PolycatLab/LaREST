@@ -44,6 +44,9 @@ include = ["*"]  # ["*"] by default
 exclude = []  # empty by default
 namespaces = true  # true by default
 
+[tool.setuptools.package-data]
+larest = ["defaults.toml"]
+
 [tool.ruff]
 line-length = 88
 indent-width = 4

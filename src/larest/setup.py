@@ -1,7 +1,8 @@
 """Configuration loading and logging setup for the LaREST pipeline.
 
-:func:`get_config` reads the user's ``config.toml`` directly into a plain
-dict with no defaults merging — the file must be complete.
+:func:`get_config` deep-merges the user's ``config.toml`` on top of the
+built-in defaults in ``defaults.toml``, then propagates the top-level
+``[parallelisation] n_cores`` to each stage unless overridden.
 
 :func:`get_logger` applies the ``[logging]`` section of that dict via
 :func:`logging.config.dictConfig`, substituting the resolved path for the
@@ -14,6 +15,7 @@ list of CLI flags suitable for passing directly to ``subprocess.run``.
 from __future__ import annotations
 
 import copy
+import importlib.resources
 import logging
 import logging.config
 import tomllib
@@ -22,9 +24,64 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Maps (config path, key) to the parallelisation key used by each stage.
+# If the user does not explicitly set the key, it is filled from [parallelisation].n_cores.
+_PARALLELISATION_KEYS: dict[tuple[str, ...], str] = {
+    ("rdkit",): "n_cores",
+    ("xtb",): "parallel",
+    ("crest", "confgen"): "T",
+    ("crest", "entropy"): "T",
+    ("censo", "cli"): "maxcores",
+}
+
+
+def _load_defaults() -> dict[str, Any]:
+    data = importlib.resources.files("larest").joinpath("defaults.toml").read_bytes()
+    return tomllib.loads(data.decode("utf-8"))
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(base)
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def _apply_parallelisation(config: dict[str, Any], user_config: dict[str, Any]) -> dict[str, Any]:
+    n_cores = config.get("parallelisation", {}).get("n_cores")
+    if n_cores is None:
+        return config
+
+    for path, key in _PARALLELISATION_KEYS.items():
+        # Walk user_config to check if the user explicitly set this key
+        user_section: Any = user_config
+        explicitly_set = False
+        for p in path:
+            if not isinstance(user_section, dict) or p not in user_section:
+                break
+            user_section = user_section[p]
+        else:
+            explicitly_set = isinstance(user_section, dict) and key in user_section
+
+        if not explicitly_set:
+            section = config
+            for p in path:
+                section = section.setdefault(p, {})
+            section[key] = n_cores
+
+    return config
+
 
 def get_config(config_dir: Path) -> dict[str, Any]:
-    """Load the pipeline configuration from ``config.toml``.
+    """Load and merge the pipeline configuration.
+
+    Deep-merges the user's ``config.toml`` on top of the built-in defaults
+    from ``src/larest/defaults.toml``, then propagates
+    ``[parallelisation] n_cores`` to every stage that the user has not
+    explicitly configured.
 
     Parameters
     ----------
@@ -34,21 +91,26 @@ def get_config(config_dir: Path) -> dict[str, Any]:
     Returns
     -------
     dict[str, Any]
-        Parsed TOML configuration as a nested dict.
+        Merged configuration dict.
 
     Raises
     ------
     Exception
-        Re-raises any exception raised by :func:`tomllib.load` after printing
+        Re-raises any exception raised during config loading after printing
         a human-readable error message.
     """
+    defaults = _load_defaults()
+
     config_file = config_dir / "config.toml"
     try:
         with open(config_file, "rb") as fstream:
-            return tomllib.load(fstream)
+            user_config = tomllib.load(fstream)
     except Exception:
         print(f"Failed to load config from {config_file}")
         raise
+
+    config = _deep_merge(defaults, user_config)
+    return _apply_parallelisation(config, user_config)
 
 
 def get_logger(output_dir: Path, config: dict[str, Any]) -> None:

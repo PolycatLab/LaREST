@@ -70,7 +70,41 @@ LaREST automatically checkpoints after each pipeline stage. If a run is interrup
 
 ## Configuration
 
-All pipeline behaviour is controlled by `config.toml` in the config directory. The file must be complete; there is no defaults merging. See [`config/reference.toml`](./config/reference.toml) for documentation of every available option.
+Pipeline behaviour is controlled by `config.toml` in the config directory. User settings are **deep-merged** on top of the built-in defaults in [`src/larest/defaults.toml`](./src/larest/defaults.toml), so you only need to set the values that differ from defaults. A minimal starting point is provided in [`config/example.config`](./config/example.config). See [`config/reference.toml`](./config/reference.toml) for documentation of every available option.
+
+### Parallelisation
+
+Set the core count once at the top level and it propagates to every stage:
+
+```toml
+[parallelisation]
+n_cores = 16
+```
+
+This fills in the stage-specific parallelisation keys automatically:
+
+| Stage | Config key | CLI flag |
+|---|---|---|
+| RDKit | `[rdkit].n_cores` | (internal, `numThreads`) |
+| xTB | `[xtb].parallel` | `--parallel N` |
+| CREST confgen | `[crest.confgen].T` | `--T N` |
+| CREST entropy | `[crest.entropy].T` | `--T N` |
+| CENSO | `[censo.cli].maxcores` | `--maxcores N` |
+
+To override for a specific stage, set that key directly in your `config.toml`:
+
+```toml
+[parallelisation]
+n_cores = 16      # default for all stages
+
+[censo.cli]
+maxcores = 8      # CENSO uses fewer cores (e.g. limited by memory per ORCA job)
+```
+
+> [!NOTE]
+> CENSO's `maxcores` sets the total CPU budget across all concurrent ORCA jobs.
+> A common pattern is to set `n_cores` to the total available cores and lower
+> `maxcores` if ORCA jobs are memory-constrained.
 
 ### `[reaction]`
 
