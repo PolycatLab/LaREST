@@ -1,4 +1,5 @@
 import argparse
+import copy
 import logging
 import logging.config
 import tomllib
@@ -19,41 +20,17 @@ def get_config(args: argparse.Namespace) -> dict[str, Any]:
     Returns
     -------
     dict[str, Any]
-        Final config for LaREST run, obtained by merging config with defaults
+        Final config for LaREST run, obtained by loading config.toml
 
     """
     config_file: Path = Path(args.config) / "config.toml"
-    defaults_file: Path = Path(args.config) / "defaults.toml"
     try:
-        # load config and defaults
         with open(config_file, "rb") as fstream:
             config = tomllib.load(fstream)
-        with open(defaults_file, "rb") as fstream:
-            defaults = tomllib.load(fstream)
-
-        # merge config and defaults
-        def merge(
-            dict1: dict[str, Any],
-            dict2: dict[str, Any],
-            sub_config: str = "",
-        ) -> dict[str, Any]:
-            for key, value in dict2.items():
-                if key in dict1:
-                    if isinstance(dict2[key], dict):
-                        merge(dict1[key], dict2[key], sub_config + f"[{key}]")
-                    else:
-                        pass
-                else:
-                    dict1[key] = value
-            return dict1
-
-        config = merge(config, defaults)
-
     except Exception:
         print(f"Failed to load config from {config_file}")
         raise
-    else:
-        return config
+    return config
 
 
 def get_logger(
@@ -79,7 +56,7 @@ def get_logger(
 
     """
     try:
-        log_config: dict[str, Any] = config["logging"].copy()
+        log_config: dict[str, Any] = copy.deepcopy(config["logging"])
 
         # set logging file location to output dir
         log_config["handlers"]["file"]["filename"] = Path(

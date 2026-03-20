@@ -1,7 +1,33 @@
-# Basic Configuration Options for LaREST
+# Configuration Options for LaREST
 
-# All settings passed here will be merged with `default.toml`
-# In the case of duplicate keys, settings here take precedence
+# LOGGING -----------
+
+[logging]
+version = 1
+
+[logging.formatters]
+
+[logging.formatters.default]
+format = "%(asctime)s:%(name)s:%(levelname)s:%(message)s"
+
+[logging.handlers]
+
+[logging.handlers.file]
+class = "logging.FileHandler"
+level = "DEBUG"
+encoding = "utf-8"
+filename = "larest.log"
+formatter = "default"
+mode = "a"
+
+[logging.handlers.stream]
+class = "logging.StreamHandler"
+level = "DEBUG"
+formatter = "default"
+
+[logging.root]
+handlers = ["file", "stream"]
+level = "DEBUG" # [DEBUG, INFO]
 
 # REACTION -------------
 
@@ -30,6 +56,11 @@ xtb = true # used to rank rdkit and crest_confgen
 n_cores = 16
 n_conformers = 50
 random_seed = 42
+conformer_box_size = 2.0
+mmff = "MMFF94"
+mmff_iters = 200
+align_iters = 50
+precision = 6
 
 # xTB -------------
 
@@ -39,6 +70,7 @@ gfn = 2
 # gfnff = true
 ohess = "vtight"
 alpb = "toluene"
+etemp = 298.15
 
 # CREST -------------
 
@@ -76,6 +108,7 @@ bthr = 0.01
 maxcores = 8
 
 [censo.general]
+temperature = 298.15
 solvent = "toluene"
 sm_rrho = "alpb"
 evaluate_rrho = true

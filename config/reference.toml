@@ -1,0 +1,268 @@
+# LaREST Reference Configuration
+#
+# This file documents all available settings. Copy sections into your config.toml
+# and adjust as needed. Settings not present in config.toml are left to each
+# tool's own built-in defaults, except for the required keys marked below.
+#
+# Required keys (LaREST reads these directly in Python, they MUST be present):
+#   [logging]          — full section required by get_logger()
+#   [rdkit]            — conformer_box_size, mmff, mmff_iters, align_iters, precision
+#   [xtb]              — etemp (used to compute S = (H - G) / T)
+#   [censo.general]    — temperature (used to compute S = (H - G) / T)
+
+# LOGGING -----------
+
+[logging]
+version = 1
+
+[logging.formatters]
+
+[logging.formatters.default]
+format = "%(asctime)s:%(name)s:%(levelname)s:%(message)s"
+
+[logging.handlers]
+
+[logging.handlers.file]
+class = "logging.FileHandler"
+level = "DEBUG"           # log level for file handler [DEBUG, INFO, WARNING, ...]
+encoding = "utf-8"
+filename = "larest.log"   # relative to output dir
+formatter = "default"
+mode = "a"
+
+[logging.handlers.stream]
+class = "logging.StreamHandler"
+level = "DEBUG"           # log level for console output [DEBUG, INFO, WARNING, ...]
+formatter = "default"
+
+[logging.root]
+handlers = ["file", "stream"]
+level = "DEBUG"           # root log level [DEBUG, INFO]
+
+# STEPS -------------
+
+[steps]
+rdkit = true              # run RDKit conformer generation
+crest_confgen = true      # run CREST conformer generation
+censo = true              # run CENSO DFT refinement
+crest_entropy = true      # run CREST entropy calculation
+xtb = true                # run xTB re-ranking after rdkit and crest_confgen
+
+# REACTION -------------
+
+[reaction]
+type = "RER"              # reaction type ["RER", "ROR"]
+                          #   RER: Ring Equilibrium Reaction (requires lengths >= 2)
+                          #   ROR: Ring-Opening polymerization Reaction (requires lengths >= 1)
+lengths = [2, 3, 4]       # list of polymer chain lengths
+initiator = ""            # initiator SMILES (required for ROR)
+monomers = []             # list of monomer SMILES strings
+
+# RDKIT -------------
+
+[rdkit]
+n_cores = 16              # number of CPU cores for parallel conformer generation
+n_conformers = 50         # number of initial conformers to generate
+random_seed = 42          # random seed for reproducibility
+conformer_box_size = 2.0  # REQUIRED — boxSizeMult for EmbedMultipleConfs
+mmff = "MMFF94"           # REQUIRED — MMFF variant ["MMFF94", "MMFF94s"]
+mmff_iters = 200          # REQUIRED — max iterations for MMFFOptimizeMoleculeConfs
+align_iters = 50          # REQUIRED — max iterations for AlignMolConformers
+precision = 6             # REQUIRED — decimal precision for MolToXYZFile output
+
+# XTB -------------
+# All keys (except etemp) are passed directly as --key value CLI flags to xTB.
+# Boolean true becomes --flag; false is omitted.
+
+[xtb]
+etemp = 298.15            # REQUIRED — electronic temperature in K; used to compute S = (H - G) / T
+parallel = 16             # --parallel N (number of CPU threads)
+gfn = 2                   # --gfn N (GFN-xTB method level: 0, 1, 2)
+# gfnff = true            # --gfnff (use GFN-FF instead of GFN-xTB)
+ohess = "vtight"          # --ohess <level> (hessian after optimisation: tight, vtight, ...)
+alpb = "toluene"          # --alpb <solvent> (ALPB implicit solvation)
+verbose = true            # --verbose (verbose output)
+json = true               # --json (write JSON output)
+acc = 1.0                 # --acc <val> (numerical accuracy)
+iterations = 250          # --iterations N (max SCF iterations)
+
+# CREST -------------
+# All keys are passed directly as --key value CLI flags to CREST.
+# Boolean true becomes --flag; false is omitted.
+
+[crest.confgen]
+# General
+T = 16                    # --T N (number of CPU threads)
+niceprint = true          # --niceprint (cleaner output)
+# Run type
+v3 = true                 # --v3 (use CREST v3 iMTD-GC algorithm)
+# Level of theory
+gfn2 = true               # --gfn2 (use GFN2-xTB); mutually exclusive with gfnff
+# gfnff = true            # --gfnff (use GFN-FF instead)
+alpb = "toluene"          # --alpb <solvent> (ALPB implicit solvation)
+optlev = "vtight"         # --optlev <level> (geometry optimisation level)
+# Molecular dynamics
+mdlen = "x1"              # --mdlen <val> (MD length multiplier)
+shake = 2                 # --shake N (SHAKE algorithm: 0=off, 1=H only, 2=all)
+mddump = 100              # --mddump N (trajectory dump frequency in fs)
+vbdump = 1                # --vbdump <val> (velocity dump frequency)
+tstep = 5                 # --tstep N (MD time step in fs)
+# Conformational search
+tnmd = 400                # --tnmd <val> (temperature for NMD in K)
+mrest = 5                 # --mrest N (number of CREGEN sorting steps)
+hflip = true              # --hflip (allow hydrogen-bond flipping)
+maxflip = 100             # --maxflip N (max number of flips)
+keepdir = false           # --keepdir (keep working directories)
+# Ensemble sorting (CREGEN)
+ewin = 6.0                # --ewin <val> (energy window in kcal/mol)
+rthr = 0.125              # --rthr <val> (RMSD threshold in Angstrom)
+ethr = 0.05               # --ethr <val> (energy threshold in kcal/mol)
+bthr = 0.01               # --bthr <val> (rotational constant threshold)
+athr = 0.04               # --athr <val> (atom-pair threshold)
+nmr = false               # --nmr (NMR equivalence check in CREGEN)
+temp = 298.15             # --temp <val> (temperature for Boltzmann weighting in K)
+
+[crest.entropy]
+# General
+T = 16                    # --T N (number of CPU threads)
+niceprint = true          # --niceprint (cleaner output)
+# Run type
+entropy = true            # --entropy (enable entropy mode)
+# Level of theory
+gfnff = true              # --gfnff (use GFN-FF; recommended for entropy mode)
+# gfn2 = true             # --gfn2 (use GFN2-xTB; accurate but slow)
+alpb = "toluene"          # --alpb <solvent> (ALPB implicit solvation)
+optlev = "vtight"         # --optlev <level> (geometry optimisation level)
+# Molecular dynamics
+mdlen = "x1"              # --mdlen <val> (MD length multiplier)
+shake = 2                 # --shake N (SHAKE algorithm: 0=off, 1=H only, 2=all)
+mddump = 100              # --mddump N (trajectory dump frequency in fs)
+vbdump = 1                # --vbdump <val> (velocity dump frequency)
+tstep = 5                 # --tstep N (MD time step in fs)
+# Conformational search
+tnmd = 400                # --tnmd <val> (temperature for NMD in K)
+mrest = 5                 # --mrest N (number of CREGEN sorting steps)
+hflip = true              # --hflip (allow hydrogen-bond flipping)
+maxflip = 100             # --maxflip N (max number of flips)
+keepdir = false           # --keepdir (keep working directories)
+# Entropy mode settings
+scthr = 0.02              # --scthr <val> (RMSD threshold for conformer clustering)
+ssthr = 0.005             # --ssthr <val> (entropy convergence threshold)
+ptot = 0.9                # --ptot <val> (total population threshold)
+fscal = 1.0               # --fscal <val> (frequency scaling factor)
+sthr = 25.0               # --sthr <val> (imaginary frequency threshold in cm-1)
+ithr = -50.0              # --ithr <val> (imaginary mode threshold in cm-1)
+# Ensemble sorting (CREGEN)
+ewin = 6.0                # --ewin <val> (energy window in kcal/mol)
+rthr = 0.125              # --rthr <val> (RMSD threshold in Angstrom)
+ethr = 0.05               # --ethr <val> (energy threshold in kcal/mol)
+bthr = 0.01               # --bthr <val> (rotational constant threshold)
+athr = 0.04               # --athr <val> (atom-pair threshold)
+nmr = false               # --nmr (NMR equivalence check in CREGEN)
+temp = 298.15             # --temp <val> (temperature for Boltzmann weighting in K)
+
+# CENSO -------------
+# Keys under [censo.cli] are passed as --key value flags to the CENSO CLI.
+# All other [censo.*] sections are written verbatim to .censo2rc.
+
+[censo.cli]
+maxcores = 8              # --maxcores N (max CPU cores for CENSO)
+
+[censo.general]
+temperature = 298.15      # REQUIRED — temperature in K; used to compute S = (H - G) / T
+imagthr = -100.0          # threshold for imaginary frequencies (cm-1)
+sthr = 25.0               # entropy threshold (cm-1)
+scale = 1.0               # frequency scaling factor
+solvent = "toluene"       # solvent for implicit solvation
+sm_rrho = "alpb"          # solvation model for RRHO ["alpb", "gbsa"]
+evaluate_rrho = true      # include RRHO contribution
+consider_sym = true       # consider molecular symmetry
+bhess = true              # use biased hessian approximation
+rmsdbias = false          # apply RMSD bias
+balance = true            # balance calculation workload
+gas-phase = false         # run gas-phase calculation (no solvation)
+copy_mo = true            # copy MO files between calculations
+retry_failed = true       # retry failed calculations
+
+[censo.prescreening]
+run = true                # enable prescreening step (0_PRESCREENING)
+threshold = 4.0           # energy window threshold (kcal/mol)
+func = "pbe-d4"           # DFT functional
+basis = "def2-SV(P)"      # basis set
+prog = "orca"             # QM program ["orca", "turbomole"]
+gfnv = "gfn2"             # GFN version for RRHO ["gfn1", "gfn2", "gfnff"]
+template = false          # use input template file
+
+[censo.screening]
+run = true                # enable screening step (1_SCREENING)
+threshold = 3.0           # energy window threshold (kcal/mol)
+func = "r2scan-3c"        # DFT functional
+basis = "def2-TZVP"       # basis set
+prog = "orca"             # QM program
+sm = "smd"                # solvation model ["smd", "cpcm", "cosmo"]
+gfnv = "gfn2"             # GFN version for RRHO
+implicit = true           # use implicit solvation
+template = false          # use input template file
+
+[censo.optimization]
+run = true                # enable optimisation step (2_OPTIMIZATION)
+threshold = 2.0           # energy window threshold (kcal/mol)
+macrocycles = true        # use macrocycle optimisation
+optcycles = 4             # number of optimisation cycles per macrocycle
+maxcyc = 200              # max total optimisation cycles
+hlow = 0.01               # lowest force constant for Hessian modification
+gradthr = 0.01            # gradient convergence threshold
+func = "r2scan-3c"        # DFT functional
+basis = "def2-TZVP"       # basis set
+prog = "orca"             # QM program
+sm = "smd"                # solvation model
+xtb_opt = true            # use xTB pre-optimisation
+gfnv = "gfn2"             # GFN version for RRHO
+optlevel = "normal"       # optimisation convergence level ["crude", "loose", "normal", "tight", "vtight"]
+template = false          # use input template file
+
+[censo.refinement]
+run = true                # enable refinement step (3_REFINEMENT)
+threshold = 1.0           # energy window threshold (kcal/mol)
+func = "wb97x-v"          # DFT functional
+basis = "def2-TZVP"       # basis set
+prog = "orca"             # QM program
+sm = "smd"                # solvation model
+gfnv = "gfn2"             # GFN version for RRHO
+implicit = true           # use implicit solvation
+template = false          # use input template file
+
+[censo.nmr]
+run = false               # enable NMR property calculation
+resonance_frequency = 300.0  # spectrometer frequency (MHz)
+ss_cutoff = 8.0           # shift similarity cutoff (ppm)
+prog = "orca"             # QM program
+func_j = "pbe0-d4"        # functional for J-coupling
+basis_j = "def2-TZVP"     # basis for J-coupling
+sm_j = "smd"              # solvation model for J-coupling
+func_s = "pbe0-d4"        # functional for shieldings
+basis_s = "def2-TZVP"     # basis for shieldings
+sm_s = "smd"              # solvation model for shieldings
+gfnv = "gfn2"             # GFN version for RRHO
+template = false          # use input template file
+couplings = true          # calculate J-couplings
+fc_only = true            # use Fermi-contact only approximation
+shieldings = true         # calculate shielding constants
+h_active = true           # include 1H
+c_active = true           # include 13C
+f_active = false          # include 19F
+si_active = false         # include 29Si
+p_active = false          # include 31P
+
+[censo.uvvis]
+run = false               # enable UV/Vis property calculation
+prog = "orca"             # QM program
+func = "wb97x-d4"         # TD-DFT functional
+basis = "def2-TZVP"       # basis set
+sm = "smd"                # solvation model
+gfnv = "gfn2"             # GFN version for RRHO
+nroots = 20               # number of excited states
+template = false          # use input template file
+
+[censo.paths]
+orcaversion = "6.1.0"     # installed ORCA version (must match actual installation)
