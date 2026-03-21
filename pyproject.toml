@@ -38,10 +38,8 @@ requires-python = ">=3.11"
 larest = "larest.cli:entry_point"
 
 [tool.setuptools.packages.find]
-where = ["src"]  # ["."] by default
-include = ["*"]  # ["*"] by default
-exclude = []  # empty by default
-namespaces = true  # true by default
+where = ["src"]
+include = ["*"]
 
 [tool.setuptools.package-data]
 larest = ["defaults.toml"]
@@ -65,10 +63,10 @@ ignore = [
     "D", # disable docstrings for now
     "PLR", # disable refactor warnings
     "PTH", # switch all paths to Pathlib objects
-    "COM819" # trialing commas
+    "COM819", # trailing commas
 ]
 pydocstyle.convention = "numpy"
-isort.known-first-party = ["src"]
+isort.known-first-party = ["larest"]
 isort.split-on-trailing-comma = true
 
 [tool.ruff.lint.pycodestyle]
