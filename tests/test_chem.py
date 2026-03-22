@@ -130,6 +130,11 @@ class TestBuildPolymerROR:
         with pytest.raises(ValueError, match="polymer length >= 1"):
             build_polymer(_BETA_PL, 0, "ROR", config)
 
+    def test_ror_length_0_error_includes_length(self):
+        config = {"reaction": {"type": "ROR", "initiator": _INITIATOR}}
+        with pytest.raises(ValueError, match=r"\(current length: 0\)"):
+            build_polymer(_BETA_PL, 0, "ROR", config)
+
     def test_ror_longer_polymer_than_rer(self):
         """ROR n=2 polymer should contain initiator fragment."""
         config = {"reaction": {"type": "ROR", "initiator": _INITIATOR}}

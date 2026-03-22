@@ -205,6 +205,11 @@ def run_rdkit(
     xtb_results_df = pd.DataFrame(xtb_results, dtype=np.float64).sort_values("G")
     xtb_results_df.to_csv(xtb_results_file, header=True, index=False)
 
+    if xtb_results_df.empty:
+        raise RuntimeError(
+            "All xTB conformer calculations failed; no results to return",
+        )
+
     best_rdkit_conformer_results = xtb_results_df.iloc[0].to_dict()
     del best_rdkit_conformer_results["conformer_id"]
     return {"rdkit": best_rdkit_conformer_results}

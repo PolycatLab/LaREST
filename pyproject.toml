@@ -46,6 +46,7 @@ tests = [
 dev = [
     "larest[tests]",
     "pre-commit",
+    "ruff",
     "ty",
 ]
 

@@ -82,6 +82,18 @@ class TestParseBestCensoConformers:
         for section in CENSO_SECTIONS:
             assert result[section] == "CONF0"
 
+    def test_missing_sections_logs_warning(self, tmp_path, caplog):
+        import logging
+
+        # File contains fewer "Highest ranked conformer" lines than CENSO_SECTIONS
+        partial = tmp_path / "partial.txt"
+        partial.write_text(
+            "Highest ranked conformer CONF1\nHighest ranked conformer CONF2\n",
+        )
+        with caplog.at_level(logging.WARNING):
+            parse_best_censo_conformers(partial)
+        assert "Failed to extract best conformers" in caplog.text
+
 
 class TestExtractBestConformerXyz:
     def test_extracts_correct_conformer(self, censo_conformers_xyz_file, tmp_path):
@@ -109,6 +121,11 @@ class TestExtractBestConformerXyz:
         out = tmp_path / "first.xyz"
         extract_best_conformer_xyz(censo_conformers_xyz_file, "CONF1", out)
         assert "CONF1" in out.read_text()
+
+    def test_missing_conformer_id_raises(self, censo_conformers_xyz_file, tmp_path):
+        out = tmp_path / "best.xyz"
+        with pytest.raises(ValueError, match="CONF99"):
+            extract_best_conformer_xyz(censo_conformers_xyz_file, "CONF99", out)
 
 
 class TestCreateCensorc:

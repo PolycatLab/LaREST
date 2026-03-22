@@ -97,6 +97,8 @@ def run_pipeline(
                 results["censo_refinement"],
                 crest_entropy_results,
             )
+        else:
+            results |= {"crest_entropy": crest_entropy_results}
 
     results_file = dir_path / "results.json"
     logger.debug(f"Writing final results to {results_file}")

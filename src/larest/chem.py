@@ -82,8 +82,8 @@ def get_ring_size(smiles: str) -> int | None:
         MolFromSmarts(fg_smarts) for fg_smarts in MONOMER_GROUPS.values()
     ]
     for fg_mol in functional_groups:
-        if mol.HasSubstructMatch(fg_mol):
-            substruct_atom_idx: tuple[int] = mol.GetSubstructMatch(fg_mol)
+        substruct_atom_idx: tuple[int] = mol.GetSubstructMatch(fg_mol)
+        if substruct_atom_idx:
             for atom_id in substruct_atom_idx:
                 substruct_atom: Atom = mol.GetAtomWithIdx(atom_id)
                 if (substruct_atom.GetAtomicNum() != 6) and (substruct_atom.IsInRing()):
@@ -146,8 +146,8 @@ def get_polymer_unit(
     # obtaining the atom ids of the functional group in the monomer/initiator
     fg_atom_idx = []
     for fg_mol in functional_groups:
-        if mol.HasSubstructMatch(fg_mol):
-            substruct_atom_idx: tuple[int] = mol.GetSubstructMatch(fg_mol)
+        substruct_atom_idx: tuple[int] = mol.GetSubstructMatch(fg_mol)
+        if substruct_atom_idx:
             for atom_id in substruct_atom_idx:
                 substruct_atom: Atom = mol.GetAtomWithIdx(atom_id)
                 match mol_type:
@@ -248,7 +248,7 @@ def build_polymer(
         )
     if polymer_length < 1 and reaction_type == "ROR":
         raise ValueError(
-            f"Please specify a polymer length >= 1 for ROR reaction (current length: {polymer_length}",
+            f"Please specify a polymer length >= 1 for ROR reaction (current length: {polymer_length})",
         )
 
     logger.debug(f"Building {reaction_type} polymer")

@@ -80,6 +80,18 @@ class TestRunRdkitMocked:
         ):
             run_rdkit("not_a_smiles!!!", tmp_path, minimal_config)
 
+    def test_run_rdkit_raises_when_all_conformers_fail(self, tmp_path, minimal_config):
+        import subprocess
+
+        with (
+            patch(
+                "larest.rdkit.subprocess.run",
+                side_effect=subprocess.CalledProcessError(1, "xtb"),
+            ),
+            pytest.raises(RuntimeError, match="All xTB conformer calculations failed"),
+        ):
+            run_rdkit("C1CC(=O)O1", tmp_path, minimal_config)
+
 
 # ---------------------------------------------------------------------------
 # Integration tests (require xtb installed)

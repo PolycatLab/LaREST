@@ -233,7 +233,7 @@ def parse_best_censo_conformers(
                 else:
                     section_no += 1
 
-    if not all(best_censo_conformers.values()):
+    if section_no < len(CENSO_SECTIONS):
         logger.warning(
             f"Failed to extract best conformers from {censo_output_file}",
         )
@@ -277,5 +277,9 @@ def extract_best_conformer_xyz(
                 with open(output_xyz_file, "w") as fout:
                     fout.writelines(conformers_xyz[i - 1 : i + n_atoms + 1])
                 break
+        else:
+            raise ValueError(
+                f"Conformer {best_conformer_id} not found in {censo_conformers_xyz_file}",
+            )
 
     logger.debug(f"Finished extracting best conformer xyz to {output_xyz_file}")

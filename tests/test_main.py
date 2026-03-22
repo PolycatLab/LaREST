@@ -496,6 +496,31 @@ class TestRunPipelineMocked:
 
         mock_rdkit.assert_not_called()
 
+    def test_run_pipeline_stores_crest_entropy_when_censo_disabled(self, tmp_path):
+        from larest.checkpoint import PipelineStage
+
+        config = self._make_config()
+        config["steps"]["crest_entropy"] = True
+        config["steps"]["censo"] = False
+        mol = Monomer(_MONOMER_SMILES)
+        self._mol_dir(tmp_path, mol)
+
+        fake_rdkit = {"rdkit": {"H": -100000.0, "S": -50.0, "G": -115000.0}}
+        fake_entropy = {"S_conf": 10.0, "S_rrho": 5.0, "S_total": 15.0}
+
+        with (
+            patch(
+                "larest.main.restore_results",
+                return_value=({}, PipelineStage.RDKIT),
+            ),
+            patch("larest.main.run_rdkit", return_value=fake_rdkit),
+            patch("larest.main.run_crest_entropy", return_value=fake_entropy),
+        ):
+            result = run_pipeline(mol, tmp_path, config)
+
+        assert "crest_entropy" in result.sections
+        assert result.sections["crest_entropy"] == fake_entropy
+
 
 # ---------------------------------------------------------------------------
 # Full CLI integration test
