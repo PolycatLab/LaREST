@@ -34,7 +34,7 @@ This installs `xTB`, `CREST`, and `LaREST` itself (along with all Python depende
 **ORCA** must be installed separately and available on your `PATH`. See the [ORCA website](https://orcaforum.kofo.mpg.de) for download instructions.
 
 > [!IMPORTANT]
-> Update the `orcaversion` field in [config/config.toml](./config/config.toml) to match your installed ORCA version.
+> Update the `orcaversion` field in [config/config.toml](./config/example.toml) to match your installed ORCA version.
 
 ## Usage
 

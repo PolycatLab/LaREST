@@ -17,7 +17,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dev dependencies
-        run: pip install ".[dev]"
+      - name: Install linting dependencies
+        # censo is a CLI tool not on PyPI, so we install the pip-available
+        # dependencies directly rather than going through ".[dev]"
+        run: pip install pre-commit ty pytest numpy pandas tqdm rdkit
 
       - uses: pre-commit/action@v3.0.1
