@@ -36,9 +36,3 @@ crest_confgen = true  # CREST conformer ensemble
 censo = true          # CENSO DFT refinement
 crest_entropy = true  # CREST conformational entropy correction
 xtb = true            # xTB re-ranking after rdkit and crest_confgen
-
-# ORCA VERSION (REQUIRED)
-# Must match your installed ORCA version exactly.
-
-[censo.paths]
-orcaversion = "6.1.0"

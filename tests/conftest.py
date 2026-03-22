@@ -96,7 +96,6 @@ def minimal_config():
             "screening": {"run": True},
             "optimization": {"run": True},
             "refinement": {"run": True},
-            "paths": {"orcaversion": "6.0.0"},
         },
         "logging": {
             "version": 1,

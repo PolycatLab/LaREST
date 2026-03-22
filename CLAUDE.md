@@ -14,7 +14,7 @@ conda activate larest
 pip install .
 ```
 
-CENSO and ORCA must be installed separately (see README). The `orcaversion` in `config/config.toml` must match the installed ORCA version.
+CENSO and ORCA must be installed separately (see README).
 
 ## Running LaREST
 

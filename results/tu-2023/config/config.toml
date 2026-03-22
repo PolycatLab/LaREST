@@ -287,6 +287,3 @@ gfnv = "gfn2"
 nroots = 20
 template = false
 run = false # unnecessary?
-
-[censo.paths]
-orcaversion = "6.1.0" # replace as necessary

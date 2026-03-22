@@ -4,9 +4,6 @@
 # and adjust as needed. User settings are deep-merged on top of the built-in
 # defaults in src/larest/defaults.toml — only the keys you set are required.
 #
-# The only value that MUST be set by the user (no safe default exists):
-#   [censo.paths] orcaversion — must match your installed ORCA version
-
 # PARALLELISATION -------
 # n_cores is a single top-level setting applied to all stages.
 # It is propagated to [rdkit].n_cores, [xtb].parallel, [crest.confgen].T,
@@ -269,6 +266,3 @@ sm = "smd"                # solvation model
 gfnv = "gfn2"             # GFN version for RRHO
 nroots = 20               # number of excited states
 template = false          # use input template file
-
-[censo.paths]
-orcaversion = "6.1.0"     # installed ORCA version (must match actual installation)

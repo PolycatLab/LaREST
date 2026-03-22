@@ -33,9 +33,6 @@ This installs `xTB`, `CREST`, and `LaREST` itself (along with all Python depende
 
 **ORCA** must be installed separately and available on your `PATH`. See the [ORCA website](https://orcaforum.kofo.mpg.de) for download instructions.
 
-> [!IMPORTANT]
-> Update the `orcaversion` field in [`config/example.toml`](./config/example.toml) to match your installed ORCA version.
-
 ## Usage
 
 ### Running locally
@@ -169,9 +166,6 @@ Options passed directly as CLI flags to `crest`. Separate sections control the c
 ### `[censo.*]`
 
 Controls the four CENSO DFT sub-stages. Each sub-stage (`prescreening`, `screening`, `optimization`, `refinement`) has its own section with `func`, `basis`, `sm`, and `threshold` keys. The `[censo.general]` section sets global CENSO settings including `temperature` and `solvent`.
-
-> [!IMPORTANT]
-> `[censo.paths] orcaversion` must match your installed ORCA version exactly.
 
 ## Output
 

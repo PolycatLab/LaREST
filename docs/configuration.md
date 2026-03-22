@@ -112,15 +112,6 @@ The `[censo.general]` section sets global CENSO settings:
 | `temperature` | `298.15` | Temperature (K) |
 | `solvent` | `"toluene"` | Solvent for implicit solvation |
 
-```{important}
-`[censo.paths] orcaversion` must match your installed ORCA version exactly.
-```
-
-```toml
-[censo.paths]
-orcaversion = "6.1.0"
-```
-
 ## Boolean flags
 
 For `[xtb]` and `[crest.*]` sections, boolean values are translated to CLI flags:

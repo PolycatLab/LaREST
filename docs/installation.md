@@ -32,15 +32,6 @@ This installs ruff, ty, pre-commit, and pytest. The hooks run ruff (lint + forma
 pre-commit run --all-files
 ```
 
-## Post-installation
-
-After installing ORCA, update the `orcaversion` field in your config file to match your installed version:
-
-```toml
-[censo.paths]
-orcaversion = "6.1.0"   # must match your ORCA installation exactly
-```
-
 ## Tested versions
 
 | Dependency | Version |

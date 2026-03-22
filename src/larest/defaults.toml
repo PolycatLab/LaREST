@@ -145,6 +145,3 @@ func = "wb97x-v"
 basis = "def2-TZVP"
 sm = "smd"
 gfnv = "gfn2"
-
-[censo.paths]
-orcaversion = "REQUIRED"  # must be overridden in user config.toml

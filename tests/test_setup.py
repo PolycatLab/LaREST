@@ -120,8 +120,7 @@ class TestGetConfig:
     def test_loads_and_merges_config(self, tmp_path):
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            '[reaction]\nmonomers = ["C1CC(=O)O1"]\nlengths = [2]\n'
-            '[censo.paths]\norcaversion = "6.0.0"\n',
+            '[reaction]\nmonomers = ["C1CC(=O)O1"]\nlengths = [2]\n',
         )
         config = get_config(config_file)
         assert config["reaction"]["monomers"] == ["C1CC(=O)O1"]
