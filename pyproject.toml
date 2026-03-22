@@ -29,6 +29,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Chemistry",
 ]
@@ -51,6 +52,14 @@ dev = [
 
 [project.scripts]
 larest = "larest.cli:entry_point"
+
+[tool.versioningit]
+# Version is derived from git tags of the form vX.Y.Z (e.g. v1.0.0).
+# Run `git tag v1.0.0 && pip install -e .` to set the version.
+[tool.versioningit.vcs]
+method = "git"
+match = ["v*"]
+default-tag = "0.0.0"
 
 [tool.setuptools.packages.find]
 where = ["src"]

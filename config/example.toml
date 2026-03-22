@@ -4,8 +4,8 @@
 # built-in defaults in src/larest/defaults.toml.
 #
 # Usage:
-#   larest -o output/ -c <directory containing this file>
-# (rename or copy this file to config.toml in your config directory)
+#   larest config/example.toml -o output/
+# (copy and rename this file, then edit as needed)
 
 # PARALLELISATION -------
 # Set once here; applied to all stages (rdkit, xtb, crest, censo).
