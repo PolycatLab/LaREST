@@ -33,4 +33,4 @@ jobs:
         run: uv pip install --system ".[tests]"
 
       - name: Run tests
-        run: pytest tests/ --integration
+        run: pytest tests/
