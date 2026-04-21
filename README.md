@@ -12,13 +12,7 @@ Two reaction types are supported:
 - **RER** (Ring Equilibrium Reaction) — no initiator; polymer chain only
 - **ROR** (Ring-Opening polymerization Reaction) — includes an initiating alcohol
 
-Final reaction thermodynamics are computed as:
 
-```
-ΔX = (X_polymer - n·X_monomer - X_initiator) / n
-```
-
-where *n* is the polymer chain length.
 
 ## Installation
 
