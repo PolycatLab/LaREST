@@ -138,7 +138,7 @@ class TestCreateCensorc:
         create_censorc(minimal_config, tmp_path)
         content = (tmp_path / ".censo2rc").read_text()
         assert "[general]" in content
-        assert "[cli]" in content
+        assert "[cli]" not in content
 
     def test_censorc_contains_temperature(self, tmp_path, minimal_config):
         create_censorc(minimal_config, tmp_path)
