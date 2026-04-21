@@ -84,21 +84,11 @@ etemp = 298.15
 T = 1
 gfn2 = true
 alpb = "toluene"
-optlev = "vtight"
-ewin = 6.0
-rthr = 0.125
-ethr = 0.05
-bthr = 0.01
 
 [crest.entropy]
 T = 1
 gfnff = true
 alpb = "toluene"
-optlev = "vtight"
-ewin = 6.0
-rthr = 0.125
-ethr = 0.05
-bthr = 0.01
 
 # CENSO -----------------
 
@@ -106,42 +96,21 @@ bthr = 0.01
 maxcores = 1
 
 [censo.general]
-temperature = 298.15
 solvent = "toluene"
-sm_rrho = "alpb"
-evaluate_rrho = true
 
 [censo.prescreening]
 run = true
 threshold = 4.0
-func = "pbe-d4"
-basis = "def2-SV(P)"
-gfnv = "gfn2"
 
 [censo.screening]
 run = true
 threshold = 3.0
-func = "r2scan-3c"
-basis = "def2-TZVP"
-sm = "smd"
-gfnv = "gfn2"
 
 [censo.optimization]
 run = true
 threshold = 2.0
-macrocycles = true
 optcycles = 4
-maxcyc = 200
-gradthr = 0.01
-func = "r2scan-3c"
-basis = "def2-TZVP"
-sm = "smd"
-gfnv = "gfn2"
 
 [censo.refinement]
 run = true
-threshold = 1.0
 func = "wb97x-v"
-basis = "def2-TZVP"
-sm = "smd"
-gfnv = "gfn2"
