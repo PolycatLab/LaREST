@@ -155,7 +155,10 @@ H  -0.380000   0.510000  -0.883000
 
         result = run_xtb(xyz_file, tmp_path, minimal_config)
 
-        assert result["H"] is not None
-        assert result["G"] is not None
-        assert result["S"] is not None
-        assert result["G"] < 0  # free energies should be negative (Hartree)
+        h = result["H"]
+        g = result["G"]
+        s = result["S"]
+        assert h is not None
+        assert g is not None
+        assert s is not None
+        assert g < 0

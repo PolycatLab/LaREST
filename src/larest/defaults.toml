@@ -94,23 +94,27 @@ alpb = "toluene"
 
 [censo.cli]
 maxcores = 1
+prescreening = true
+screening = true
+optimization = true
+refinement = true
 
 [censo.general]
 solvent = "toluene"
 
 [censo.prescreening]
-run = true
 threshold = 4.0
+prog = "orca"
 
 [censo.screening]
-run = true
 threshold = 3.0
+prog = "orca"
 
 [censo.optimization]
-run = true
 threshold = 2.0
 optcycles = 4
+prog = "orca"
 
 [censo.refinement]
-run = true
 func = "wb97x-v"
+prog = "orca"

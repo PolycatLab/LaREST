@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pandas as pd
 from rdkit.Chem.AllChem import (
-    MMFFGetMoleculeForceField,  # type: ignore[attr-defined]
-    MMFFGetMoleculeProperties,  # type: ignore[attr-defined]
+    MMFFGetMoleculeForceField,  # type: ignore  # noqa: PGH003
+    MMFFGetMoleculeProperties,  # type: ignore  # noqa: PGH003
 )
 from rdkit.Chem.MolStandardize.rdMolStandardize import StandardizeSmiles
 from rdkit.Chem.rdDistGeom import EmbedMultipleConfs

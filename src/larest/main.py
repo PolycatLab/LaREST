@@ -251,7 +251,7 @@ def compile_results(
                     monomer_results.sections[section][param],
                 )
                 summary[f"initiator_{param}"].append(
-                    initiator_results.sections[section][param]  # type: ignore[union-attr]
+                    initiator_results.sections[section][param]  # type: ignore  # noqa: PGH003
                     if reaction_type == "ROR"
                     else 0,
                 )

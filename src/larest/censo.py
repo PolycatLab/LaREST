@@ -49,6 +49,8 @@ def create_censorc(config: dict[str, Any], temp_dir: Path) -> None:
 
     with open(censorc_file, "w") as fstream:
         for header, sub_config in censo_config.items():
+            if header == "cli":
+                continue
             fstream.write(f"[{header}]\n")
             fstream.writelines(
                 f"{key} = {value}\n" for key, value in sub_config.items()
@@ -122,7 +124,7 @@ def run_censo(
 
     censo_results: dict[str, dict[str, float | None]] = parse_censo_output(
         censo_output_file=censo_output_file,
-        temperature=config["censo"]["general"]["temperature"],
+        temperature=config["censo"]["general"].get("temperature", 298.15),
     )
 
     censo_results_file = censo_dir / "results.json"
