@@ -168,6 +168,15 @@ temp = 298.15             # --temp <val> (temperature for Boltzmann weighting in
 # Keys under [censo.cli] are passed as --key value flags to the CENSO CLI.
 # All other [censo.*] sections are written verbatim to .censo2rc.
 
+[censo.paths]
+# Paths to external executables written to .censo2rc [paths].
+# If omitted, LaREST resolves each via PATH; falls back to `ls` if not found.
+# orc = "/path/to/orca"
+# xtb = "/path/to/xtb"
+# cosmotherm = "/path/to/cosmotherm"
+# cosmorssetup = "/path/to/cosmorssetup"
+# tm = "/path/to/tm"
+
 [censo.cli]
 maxcores = 8              # --maxcores N (max CPU cores for CENSO)
 

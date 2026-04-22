@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,22 @@ from larest.output import create_dir
 from larest.setup import parse_command_args
 
 logger = logging.getLogger(__name__)
+
+_CENSO_PATH_EXECUTABLES: dict[str, str] = {
+    "orc": "orca",
+    "xtb": "xtb",
+    "cosmotherm": "cosmotherm",
+    "cosmorssetup": "cosmorssetup",
+    "tm": "tm",
+}
+
+
+def _resolve_censo_paths(user_paths: dict[str, str]) -> dict[str, str]:
+    fallback = shutil.which("ls") or "/bin/ls"
+    return {
+        key: user_paths.get(key) or shutil.which(exe) or fallback
+        for key, exe in _CENSO_PATH_EXECUTABLES.items()
+    }
 
 
 def create_censorc(config: dict[str, Any], temp_dir: Path) -> None:
@@ -49,13 +66,18 @@ def create_censorc(config: dict[str, Any], temp_dir: Path) -> None:
 
     with open(censorc_file, "w") as fstream:
         for header, sub_config in censo_config.items():
-            if header == "cli":
+            if header in ("cli", "paths"):
                 continue
             fstream.write(f"[{header}]\n")
             fstream.writelines(
                 f"{key} = {value}\n" for key, value in sub_config.items()
             )
             fstream.write("\n")
+
+        paths = _resolve_censo_paths(censo_config.get("paths", {}))
+        fstream.write("[paths]\n")
+        fstream.writelines(f"{key} = {value}\n" for key, value in paths.items())
+        fstream.write("\n")
     logger.debug(f"Created censo config file at {censorc_file}")
 
 
