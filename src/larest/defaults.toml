@@ -105,16 +105,20 @@ solvent = "toluene"
 [censo.prescreening]
 threshold = 4.0
 prog = "orca"
+sm = "smd"
 
 [censo.screening]
 threshold = 3.0
 prog = "orca"
+sm = "smd"
 
 [censo.optimization]
 threshold = 2.0
 optcycles = 4
 prog = "orca"
+sm = "smd"
 
 [censo.refinement]
 func = "wb97x-v"
 prog = "orca"
+sm = "smd"
