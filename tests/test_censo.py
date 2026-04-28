@@ -75,12 +75,12 @@ class TestParseBestCensoConformers:
         assert result["censo_optimization"] == "CONF3"
         assert result["censo_refinement"] == "CONF5"
 
-    def test_missing_data_defaults_to_conf0(self, tmp_path):
+    def test_missing_data_defaults_to_conf1(self, tmp_path):
         empty = tmp_path / "empty.txt"
         empty.write_text("nothing here\n")
         result = parse_best_censo_conformers(empty)
         for section in CENSO_SECTIONS:
-            assert result[section] == "CONF0"
+            assert result[section] == "CONF1"
 
     def test_missing_sections_logs_warning(self, tmp_path, caplog):
         import logging

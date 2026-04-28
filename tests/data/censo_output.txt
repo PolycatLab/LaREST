@@ -1,13 +1,36 @@
- CENSO output (sample)
+ CENSO output (sample) — CENSO v3.0.6 format
 
-part0 -0.12345678 -0.12345000 some other data
-  Highest ranked conformer CONF1
+-------------------------------- PRESCREENING SINGLE-POINT RESULTS ---------------------------------
 
-part1 -0.23456789 -0.23456000 some other data
-  Highest ranked conformer CONF2
+CONF1    -266.613739      0.00        -6.706328     -266.624426      0.00            80.00
+CONF3    -266.610000      2.00        -6.700000     -266.621000      2.00            20.00
 
-part2 -0.34567890 -0.34567000 some other data
-  Highest ranked conformer CONF3
+Boltzmann averaged free energy/enthalpy of ensemble:
+temperature /K:   avE(T) /a.u.   avG(T) /a.u.
+    298.15        -0.12345678    -0.12345000     <<==part0==
 
-part3 -0.45678901 -0.45678000 some other data
-  Highest ranked conformer CONF5
+----------------------------- SCREENING SINGLE-POINT (+ mRRHO) RESULTS -----------------------------
+
+CONF2    -267.107101   -5.788548    0.039375  -267.076951      0.00            75.00
+CONF1    -267.100000   -5.780000    0.038000  -267.070000      1.50            25.00
+
+Boltzmann averaged free energy/enthalpy of ensemble:
+temperature /K:   avE(T) /a.u.   avG(T) /a.u.
+    298.15        -0.23456789    -0.23456000     <<==part1==
+
+--------------------------------------- OPTIMIZATION RESULTS ---------------------------------------
+
+CONF3    -267.117484  0.039376  -267.078109      0.00            70.00
+CONF2    -267.110000  0.038000  -267.070000      1.20            30.00
+
+Boltzmann averaged free energy/enthalpy of ensemble:
+temperature /K:   avE(T) /a.u.   avG(T) /a.u.
+    298.15        -0.34567890    -0.34567000     <<==part2==
+
+---------------------------- REFINEMENT SINGLE-POINT (+ mRRHO) RESULTS -----------------------------
+
+CONF5    -267.177640   -6.132140    0.039376  -267.148036      0.00           100.00
+
+Boltzmann averaged free energy/enthalpy of ensemble:
+temperature /K:   avE(T) /a.u.   avG(T) /a.u.
+    298.15        -0.45678901    -0.45678000     <<==part3==

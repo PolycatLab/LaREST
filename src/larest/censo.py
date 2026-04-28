@@ -124,12 +124,17 @@ def run_censo(
 
     censo_output_file = censo_dir / "censo.txt"
     censo_config_file = temp_dir / ".censo2rc"
-    crest_conformers_file = dir_path / "crest_confgen" / "crest_conformers.xyz"
+
+    # CENSO sets its working directory to the parent of --input, so copy the
+    # conformers file into censo_dir to ensure all CENSO output lands there.
+    crest_conformers_src = dir_path / "crest_confgen" / "crest_conformers.xyz"
+    censo_input_file = censo_dir / "crest_conformers.xyz"
+    shutil.copy(crest_conformers_src, censo_input_file)
 
     censo_args: list[str] = [
         "censo",
         "--input",
-        str(crest_conformers_file.absolute()),
+        str(censo_input_file.absolute()),
         "--inprc",
         str(censo_config_file.absolute()),
         *parse_command_args(sub_config=["censo", "cli"], config=config),
@@ -241,27 +246,44 @@ def parse_best_censo_conformers(
         Mapping of CENSO section name to the ID of the top-ranked conformer
         in that section, e.g. ``{"censo_refinement": "CONF5", ...}``.
     """
-    best_censo_conformers: dict[str, str] = dict.fromkeys(CENSO_SECTIONS, "CONF0")
+    best_censo_conformers: dict[str, str] = {}
 
     logger.debug(f"Searching for results in file {censo_output_file}")
     section_no: int = 0
+    current_conf: str | None = None
+    in_results_table: bool = False
+
     with open(censo_output_file) as fstream:
         for i, line in enumerate(fstream):
-            if "Highest ranked conformer" in line:
-                try:
-                    best_censo_conformers[CENSO_SECTIONS[section_no]] = line.split()[-1]
-                except Exception:
-                    logger.exception(
-                        f"Failed to extract best conformer from line {i}: {line}",
-                    )
+            # Each stage's final results table is headed by a dashed line containing
+            # "RESULTS".  The rows are sorted by ΔGtot ascending, so the first CONF
+            # row is the best conformer.  Reset on each new header so intermediate
+            # tables (e.g. "Converged or removed conformers") don't interfere.
+            if "--" in line and "RESULTS" in line:
+                in_results_table = True
+                current_conf = None
+            elif in_results_table and line.startswith("CONF") and current_conf is None:
+                current_conf = line.split()[0]
+            elif f"<<==part{section_no}==" in line and section_no < len(CENSO_SECTIONS):
+                section = CENSO_SECTIONS[section_no]
+                if current_conf:
+                    best_censo_conformers[section] = current_conf
                 else:
-                    section_no += 1
+                    logger.warning(
+                        f"Could not find conformer ID for {section} at line {i}",
+                    )
+                in_results_table = False
+                current_conf = None
+                section_no += 1
 
-    if section_no < len(CENSO_SECTIONS):
+    if len(best_censo_conformers) < len(CENSO_SECTIONS):
         logger.warning(
             f"Failed to extract best conformers from {censo_output_file}",
         )
-        logger.warning("Missing sections will be assigned first conformer (CONF0)")
+        logger.warning("Missing sections will be assigned first conformer (CONF1)")
+        for section in CENSO_SECTIONS:
+            best_censo_conformers.setdefault(section, "CONF1")
+
     for section in CENSO_SECTIONS:
         logger.debug(
             f"Best conformer in {section}: {best_censo_conformers[section]}",
