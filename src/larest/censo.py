@@ -262,8 +262,10 @@ def parse_best_censo_conformers(
             if "--" in line and "RESULTS" in line:
                 in_results_table = True
                 current_conf = None
-            elif in_results_table and line.startswith("CONF") and current_conf is None:
-                current_conf = line.split()[0]
+            elif in_results_table and current_conf is None:
+                token = line.split()[0] if line.split() else ""
+                if token.startswith("CONF") and token[4:].isdigit():
+                    current_conf = token
             elif f"<<==part{section_no}==" in line and section_no < len(CENSO_SECTIONS):
                 section = CENSO_SECTIONS[section_no]
                 if current_conf:
