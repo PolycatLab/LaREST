@@ -164,6 +164,7 @@ def run_crest_entropy(
     crest_args: list[str] = [
         "crest",
         str(best_censo_conformer_xyz_file.absolute()),
+        "--entropy",
         *parse_command_args(sub_config=["crest", "entropy"], config=config),
     ]
 

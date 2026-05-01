@@ -87,7 +87,7 @@ alpb = "toluene"
 
 [crest.entropy]
 T = 1
-gfnff = true
+gfn2 = true
 alpb = "toluene"
 
 # CENSO -----------------
