@@ -25,8 +25,13 @@ MONOMER_GROUPS: dict[str, str] = {
     "oA": "[O;R]-[C;R](=[O;!R])-[N;R]",
     "Lm": "[C,c;R]-[C;R](=[O;!R])-[N;R]",
 }
-# TODO: include additional initiator groups for further customisation
-INITIATOR_GROUPS: dict[str, str] = {"R-OH": "[O;H][H]"}
+INITIATOR_GROUPS: dict[str, str] = {
+    "R-OH": "[O;H][H]",
+    # formate ester (e.g. methyl formate): breaks C(formyl)-O bond so that the
+    # formyl C caps the ring-O end and the alkoxy O caps the acyl end, giving
+    # HC(=O)-O-[chain]-C(=O)-O-R with esters on both sides of the polymer.
+    "HCOO-R": "[O;!H;!R]-[C;H1;!R](=[O;!R])",
+}
 CREST_ENTROPY_OUTPUT_PARAMS: list[str] = [
     "S_conf",
     "S_rrho",

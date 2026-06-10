@@ -110,6 +110,11 @@ lengths = [2, 3, 4]           # polymer chain lengths to evaluate
 initiator = "C1=CC=C(C=C1)CO" # initiator SMILES (required for ROR only)
 ```
 
+Two initiator types are recognised for ROR reactions:
+
+- **Alcohol (R–OH)** — e.g. `"CCO"` (ethanol). The O–H bond breaks; one chain end becomes a hydroxyl, the other a methyl ester.
+- **Formate ester (HC(=O)–OR)** — e.g. `"COC=O"` (methyl formate). The acyl C–O bond breaks; both chain ends become esters (`HC(=O)–O–` at the ring-O end, `–C(=O)–OCH3` at the acyl end).
+
 ### `[steps]`
 
 Toggle individual pipeline stages on or off.

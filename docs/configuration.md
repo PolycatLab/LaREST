@@ -19,6 +19,15 @@ initiator = "C1=CC=C(C=C1)CO"       # initiator SMILES (required for ROR only)
 - **RER** (Ring Equilibrium Reaction) requires `lengths >= 2`.
 - **ROR** (Ring-Opening polymerization Reaction) requires `lengths >= 1` and an `initiator` SMILES.
 
+### Supported initiator types
+
+| Type | Example SMILES | Bond broken | Chain ends |
+|---|---|---|---|
+| Alcohol (R–OH) | `CCO` (ethanol) | O–H | `HO–[chain]–C(=O)–OR` |
+| Formate ester (HC(=O)–OR) | `COC=O` (methyl formate) | C(formyl)–O | `HC(=O)–O–[chain]–C(=O)–OCH3` |
+
+Methyl formate is a non-symmetric initiator: it breaks its acyl C–O bond rather than an O–H bond, so **both** chain termini become ester groups (a formate ester at the ring-O end, a methyl ester at the acyl end). Any formate ester (`HC(=O)–OR`) is supported — the alkyl group `R` caps the acyl end.
+
 ## `[parallelisation]`
 
 Set the core count once; it propagates to every stage automatically.
