@@ -82,7 +82,10 @@ def run_pipeline(
             dir_path = output_dir / type(mol).__name__ / slugify(mol.smiles)
 
     create_dir(output_dir / "temp")
-    results, stage = restore_results(dir_path)
+    temperature: float = (
+        config.get("censo", {}).get("general", {}).get("temperature", 298.15)
+    )
+    results, stage = restore_results(dir_path, temperature=temperature)
 
     if config["steps"]["rdkit"] and stage <= PipelineStage.RDKIT:
         results |= run_rdkit(mol.smiles, dir_path, config)
@@ -96,6 +99,7 @@ def run_pipeline(
             results |= apply_entropy_correction(
                 results["censo_refinement"],
                 crest_entropy_results,
+                temperature,
             )
         else:
             results |= {"crest_entropy": crest_entropy_results}

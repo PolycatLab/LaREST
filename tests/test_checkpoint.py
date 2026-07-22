@@ -44,10 +44,10 @@ class TestApplyEntropyCorrection:
             "S_rrho": 5.0,
             "S_total": 15.0,
         }
-        result = apply_entropy_correction(refinement, entropy)
+        result = apply_entropy_correction(refinement, entropy, 298.15)
         assert result["censo_corrected"]["S"] == pytest.approx(-50.0 + 15.0)
 
-    def test_preserves_h_and_g(self):
+    def test_preserves_h_and_recomputes_g(self):
         refinement: dict[str, float | None] = {
             "H": -100000.0,
             "S": -50.0,
@@ -58,9 +58,13 @@ class TestApplyEntropyCorrection:
             "S_rrho": 5.0,
             "S_total": 15.0,
         }
-        result = apply_entropy_correction(refinement, entropy)
+        result = apply_entropy_correction(refinement, entropy, 298.15)
+        # H is unchanged; G is recomputed from the corrected entropy as H - T*S
+        corrected_s = -50.0 + 15.0
         assert result["censo_corrected"]["H"] == pytest.approx(-100000.0)
-        assert result["censo_corrected"]["G"] == pytest.approx(-115000.0)
+        assert result["censo_corrected"]["G"] == pytest.approx(
+            -100000.0 - 298.15 * corrected_s,
+        )
 
     def test_does_not_mutate_input(self):
         refinement: dict[str, float | None] = {
@@ -73,7 +77,7 @@ class TestApplyEntropyCorrection:
             "S_rrho": 5.0,
             "S_total": 15.0,
         }
-        apply_entropy_correction(refinement, entropy)
+        apply_entropy_correction(refinement, entropy, 298.15)
         assert refinement["S"] == pytest.approx(-50.0)
 
     def test_raises_when_s_none(self):
@@ -91,7 +95,7 @@ class TestApplyEntropyCorrection:
             ValueError,
             match="Failed to apply CREST entropy correction",
         ):
-            apply_entropy_correction(refinement, entropy)
+            apply_entropy_correction(refinement, entropy, 298.15)
 
     def test_raises_when_s_total_none(self):
         refinement: dict[str, float | None] = {
@@ -108,7 +112,24 @@ class TestApplyEntropyCorrection:
             ValueError,
             match="Failed to apply CREST entropy correction",
         ):
-            apply_entropy_correction(refinement, entropy)
+            apply_entropy_correction(refinement, entropy, 298.15)
+
+    def test_raises_when_h_none(self):
+        refinement: dict[str, float | None] = {
+            "H": None,
+            "S": -50.0,
+            "G": -115000.0,
+        }
+        entropy: dict[str, float | None] = {
+            "S_conf": 10.0,
+            "S_rrho": 5.0,
+            "S_total": 15.0,
+        }
+        with pytest.raises(
+            ValueError,
+            match="Failed to apply CREST entropy correction",
+        ):
+            apply_entropy_correction(refinement, entropy, 298.15)
 
     def test_returns_censo_corrected_key(self):
         refinement: dict[str, float | None] = {
@@ -121,7 +142,7 @@ class TestApplyEntropyCorrection:
             "S_rrho": 5.0,
             "S_total": 15.0,
         }
-        result = apply_entropy_correction(refinement, entropy)
+        result = apply_entropy_correction(refinement, entropy, 298.15)
         assert "censo_corrected" in result
 
 

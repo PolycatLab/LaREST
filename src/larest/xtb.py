@@ -20,6 +20,34 @@ from larest.setup import parse_command_args
 logger = logging.getLogger(__name__)
 
 
+def write_thermo_input(input_dir: Path, temperature: float) -> Path:
+    """Write an xTB ``$thermo`` xcontrol file fixing the thermostatistical temperature.
+
+    xTB evaluates its thermostatistics — and hence the ``TOTAL FREE ENERGY`` it
+    reports — at 298.15 K unless told otherwise.  To keep that free energy (and
+    the entropy derived from it as ``S = (H - G) / T``) consistent with the
+    pipeline's canonical temperature, we pass a ``$thermo`` block via
+    ``--input``.  This is distinct from ``--etemp``, the electronic
+    (Fermi-smearing) temperature, which does not set the thermostatistical T.
+
+    Parameters
+    ----------
+    input_dir : Path
+        Directory in which the ``xtb.inp`` xcontrol file is written.
+    temperature : float
+        Thermostatistical temperature in Kelvin.
+
+    Returns
+    -------
+    Path
+        Path to the written xcontrol file.
+    """
+    thermo_input_file = input_dir / "xtb.inp"
+    thermo_input_file.write_text(f"$thermo\n   temp={temperature}\n$end\n")
+    logger.debug(f"Wrote xTB thermo input (temp={temperature}) to {thermo_input_file}")
+    return thermo_input_file
+
+
 def run_xtb(
     xtb_input_file: Path,
     xtb_dir: Path,
@@ -53,11 +81,16 @@ def run_xtb(
     subprocess.CalledProcessError
         If the xTB process exits with a non-zero return code.
     """
+    temperature: float = config["xtb"].get("temperature", 298.15)
+    thermo_input_file = write_thermo_input(xtb_dir, temperature)
+
     xtb_args: list[str] = [
         "xtb",
         str(xtb_input_file.absolute()),
         "--namespace",
         xtb_input_file.name.split(".")[0],
+        "--input",
+        str(thermo_input_file.absolute()),
         *parse_command_args(sub_config=["xtb"], config=config),
     ]
 
@@ -73,7 +106,7 @@ def run_xtb(
 
     xtb_results: dict[str, float | None] = parse_xtb_output(
         xtb_output_file=xtb_output_file,
-        temperature=config["xtb"]["etemp"],
+        temperature=temperature,
     )
 
     xtb_results_file = xtb_dir / "results.json"
@@ -99,7 +132,8 @@ def parse_xtb_output(
     xtb_output_file : Path
         Path to the xTB output text file to parse.
     temperature : float
-        Electronic temperature in Kelvin, used to derive entropy from H and G.
+        Thermostatistical temperature in Kelvin (the T at which xTB evaluated
+        the free energy), used to derive entropy from H and G.
 
     Returns
     -------

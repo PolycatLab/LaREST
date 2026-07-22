@@ -40,6 +40,7 @@ class PipelineStage(IntEnum):
 
 def restore_results(
     dir_path: Path,
+    temperature: float = 298.15,
 ) -> tuple[dict[str, dict[str, float | None]], PipelineStage]:
     """Load previously completed pipeline results and determine the next stage to run.
 
@@ -52,6 +53,9 @@ def restore_results(
     dir_path : Path
         Root output directory for the molecule (e.g.
         ``output/Monomer/<slug>``).
+    temperature : float
+        Temperature in Kelvin used to recompute the corrected free energy when
+        restoring a CREST entropy checkpoint (see :func:`apply_entropy_correction`).
 
     Returns
     -------
@@ -91,7 +95,7 @@ def restore_results(
 
     if not _load_stage(
         path=dir_path / "crest_entropy" / "results.json",
-        load_fn=lambda path: _parse_crest_entropy(results, path),
+        load_fn=lambda path: _parse_crest_entropy(results, path, temperature),
         label="crest_entropy",
     ):
         return results, PipelineStage.CREST_ENTROPY
@@ -153,12 +157,18 @@ def _parse_rdkit(results: dict, path: Path) -> None:
 def apply_entropy_correction(
     refinement_results: dict[str, float | None],
     crest_entropy_results: dict[str, float | None],
+    temperature: float,
 ) -> dict[str, dict[str, float | None]]:
     """Apply a CREST conformational entropy correction to CENSO refinement results.
 
-    Combines the enthalpy and free energy from the CENSO ``censo_refinement`` stage
-    with the total conformational entropy from a CREST entropy calculation to
-    produce a corrected thermodynamic section (``"censo_corrected"``).
+    The CENSO ``censo_refinement`` stage yields the single-conformer
+    thermostatistical (RRHO / vibrational) entropy.  A CREST entropy run adds
+    the conformational entropy contribution — ``S_total`` (``Sconf + δSrrho``,
+    where ``δSrrho`` is the small ensemble-averaging correction, *not* a second
+    full RRHO term) — which is a distinct contribution and is therefore *added*
+    to, not substituted for, the CENSO entropy.  The free energy is then
+    recomputed from the corrected entropy as ``G = H - T·S`` so that H, S, and G
+    remain mutually consistent.
 
     Parameters
     ----------
@@ -168,29 +178,35 @@ def apply_entropy_correction(
     crest_entropy_results : dict[str, float | None]
         Entropy parameters from the CREST entropy run, keyed by
         ``"S_conf"``, ``"S_rrho"``, and ``"S_total"``.
+    temperature : float
+        Temperature in Kelvin at which the CENSO values were evaluated; used to
+        recompute the corrected free energy.
 
     Returns
     -------
     dict[str, dict[str, float | None]]
-        A single-entry dict ``{"censo_corrected": {...}}`` where the ``"S"``
-        value has been replaced by the CREST total conformational entropy.
+        A single-entry dict ``{"censo_corrected": {...}}`` where ``"S"`` is the
+        sum of the CENSO refinement entropy and the CREST total conformational
+        entropy, and ``"G"`` has been recomputed as ``H - T·S``.
 
     Raises
     ------
     ValueError
-        If either ``refinement_results["S"]`` or
+        If any of ``refinement_results["H"]``, ``refinement_results["S"]``, or
         ``crest_entropy_results["S_total"]`` is ``None``.
     """
+    h = refinement_results["H"]
     s = refinement_results["S"]
     s_total = crest_entropy_results["S_total"]
-    if s is None or s_total is None:
+    if h is None or s is None or s_total is None:
         raise ValueError("Failed to apply CREST entropy correction to CENSO results")
     corrected = refinement_results.copy()
     corrected["S"] = s + s_total
+    corrected["G"] = h - temperature * corrected["S"]
     return {"censo_corrected": corrected}
 
 
-def _parse_crest_entropy(results: dict, path: Path) -> None:
+def _parse_crest_entropy(results: dict, path: Path, temperature: float) -> None:
     """Load CREST entropy results and apply the entropy correction to *results*.
 
     Parameters
@@ -200,8 +216,14 @@ def _parse_crest_entropy(results: dict, path: Path) -> None:
         Updated in-place with a ``"censo_corrected"`` section.
     path : Path
         Path to the CREST entropy ``results.json`` file.
+    temperature : float
+        Temperature in Kelvin used to recompute the corrected free energy.
     """
     crest_entropy_results: dict[str, float | None] = json.loads(path.read_text())
     results.update(
-        apply_entropy_correction(results["censo_refinement"], crest_entropy_results),
+        apply_entropy_correction(
+            results["censo_refinement"],
+            crest_entropy_results,
+            temperature,
+        ),
     )

@@ -34,6 +34,22 @@ _PARALLELISATION_KEYS: dict[tuple[str, ...], str] = {
     ("censo", "cli"): "maxcores",
 }
 
+# Maps (config path, key) to the temperature key used by each stage.
+# If the user does not explicitly set the key, it is filled from [thermo].temperature.
+# Note: [xtb].temperature is a code-only key (see parse_command_args); the other
+# entries map onto the native temperature flags of CENSO (temperature) and CREST (temp).
+_TEMPERATURE_KEYS: dict[tuple[str, ...], str] = {
+    ("xtb",): "temperature",
+    ("censo", "general"): "temperature",
+    ("crest", "confgen"): "temp",
+    ("crest", "entropy"): "temp",
+}
+
+# Keys that are used internally by LaREST and must never be emitted as CLI flags
+# by parse_command_args (e.g. the code-only thermostatistical temperature, which
+# xTB receives via a $thermo xcontrol block rather than a --temperature flag).
+_NON_CLI_KEYS: frozenset[str] = frozenset({"temperature"})
+
 
 def _load_defaults() -> dict[str, Any]:
     data = importlib.resources.files("larest").joinpath("defaults.toml").read_bytes()
@@ -50,15 +66,19 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return result
 
 
-def _apply_parallelisation(
+def _propagate_default(
     config: dict[str, Any],
     user_config: dict[str, Any],
+    keys: dict[tuple[str, ...], str],
+    value: object,
 ) -> dict[str, Any]:
-    n_cores = config.get("parallelisation", {}).get("n_cores")
-    if n_cores is None:
-        return config
+    """Fill a shared default *value* into each per-stage key in *keys*.
 
-    for path, key in _PARALLELISATION_KEYS.items():
+    For every ``(path, key)`` entry, the key is set to *value* in *config*
+    unless the user explicitly set it in *user_config* (in which case their
+    value is preserved).
+    """
+    for path, key in keys.items():
         # Walk user_config to check if the user explicitly set this key
         user_section: Any = user_config
         explicitly_set = False
@@ -73,9 +93,29 @@ def _apply_parallelisation(
             section = config
             for p in path:
                 section = section.setdefault(p, {})
-            section[key] = n_cores
+            section[key] = value
 
     return config
+
+
+def _apply_parallelisation(
+    config: dict[str, Any],
+    user_config: dict[str, Any],
+) -> dict[str, Any]:
+    n_cores = config.get("parallelisation", {}).get("n_cores")
+    if n_cores is None:
+        return config
+    return _propagate_default(config, user_config, _PARALLELISATION_KEYS, n_cores)
+
+
+def _apply_temperature(
+    config: dict[str, Any],
+    user_config: dict[str, Any],
+) -> dict[str, Any]:
+    temperature = config.get("thermo", {}).get("temperature")
+    if temperature is None:
+        return config
+    return _propagate_default(config, user_config, _TEMPERATURE_KEYS, temperature)
 
 
 def get_config(config_file: Path) -> dict[str, Any]:
@@ -112,7 +152,8 @@ def get_config(config_file: Path) -> dict[str, Any]:
         raise
 
     config = _deep_merge(defaults, user_config)
-    return _apply_parallelisation(config, user_config)
+    config = _apply_parallelisation(config, user_config)
+    return _apply_temperature(config, user_config)
 
 
 def get_logger(
@@ -161,7 +202,8 @@ def parse_command_args(sub_config: list[str], config: dict[str, Any]) -> list[st
     Traverses *config* using the keys in *sub_config* to locate the target
     section, then converts each key-value pair to ``--key value`` tokens.
     Boolean values are handled specially: ``True`` emits ``--key`` with no
-    value; ``False`` is omitted entirely.
+    value; ``False`` is omitted entirely.  Code-only keys in
+    :data:`_NON_CLI_KEYS` (e.g. ``temperature``) are skipped entirely.
 
     Parameters
     ----------
@@ -190,6 +232,8 @@ def parse_command_args(sub_config: list[str], config: dict[str, Any]) -> list[st
 
     args = []
     for k, v in cfg.items():
+        if k in _NON_CLI_KEYS:
+            continue
         if v is False:
             continue
         args.append(f"--{k}")

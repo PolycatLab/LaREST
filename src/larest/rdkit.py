@@ -30,7 +30,7 @@ from larest.chem import get_mol
 from larest.constants import KCALMOL_TO_JMOL, THERMODYNAMIC_PARAMS
 from larest.output import create_dir
 from larest.setup import parse_command_args
-from larest.xtb import parse_xtb_output
+from larest.xtb import parse_xtb_output, write_thermo_input
 
 if TYPE_CHECKING:
     from rdkit.Chem.rdchem import Mol
@@ -136,6 +136,9 @@ def run_rdkit(
     xtb_default_args: list[str] = parse_command_args(sub_config=["xtb"], config=config)
 
     xtb_base_dir = dir_path / "xtb" / "rdkit"
+    create_dir(xtb_base_dir)
+    temperature: float = config["xtb"].get("temperature", 298.15)
+    thermo_input_file = write_thermo_input(xtb_base_dir, temperature)
     xtb_results: dict[str, list[float | None]] = {
         "conformer_id": [],
         **{param: [] for param in THERMODYNAMIC_PARAMS},
@@ -168,6 +171,8 @@ def run_rdkit(
                 str(conformer_xyz_file.absolute()),
                 "--namespace",
                 f"conformer_{conformer_id}",
+                "--input",
+                str(thermo_input_file.absolute()),
                 *xtb_default_args,
             ]
 
@@ -187,7 +192,7 @@ def run_rdkit(
             try:
                 xtb_output = parse_xtb_output(
                     xtb_output_file=xtb_output_file,
-                    temperature=config["xtb"]["etemp"],
+                    temperature=temperature,
                 )
             except Exception:
                 logger.exception(

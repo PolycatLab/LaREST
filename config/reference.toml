@@ -13,6 +13,15 @@
 # [parallelisation]
 # n_cores = 8           # cores used by all stages (default: 1)
 
+# THERMODYNAMICS ----
+# temperature is a single top-level setting giving the temperature (K) at which
+# all thermostatistical quantities (H, S, G) are evaluated. It is propagated to
+# [xtb].temperature, [censo.general].temperature, [crest.confgen].temp, and
+# [crest.entropy].temp unless those keys are set explicitly per-stage.
+
+# [thermo]
+# temperature = 298.15  # canonical thermostatistical temperature (default: 298.15)
+
 # LOGGING -----------
 
 [logging]
@@ -74,11 +83,16 @@ align_iters = 50          # REQUIRED — max iterations for AlignMolConformers
 precision = 6             # REQUIRED — decimal precision for MolToXYZFile output
 
 # XTB -------------
-# All keys (except etemp) are passed directly as --key value CLI flags to xTB.
+# All keys (except temperature) are passed directly as --key value CLI flags to xTB.
 # Boolean true becomes --flag; false is omitted.
 
 [xtb]
-etemp = 298.15            # REQUIRED — electronic temperature in K; used to compute S = (H - G) / T
+# temperature is inherited from [thermo].temperature unless set here. It is NOT
+# passed as a CLI flag; instead it is injected via a $thermo xcontrol block so
+# that xTB evaluates its free energy at this T, and it is used to derive
+# S = (H - G) / T. Distinct from etemp (the electronic Fermi-smearing temperature).
+# temperature = 298.15
+etemp = 298.15            # --etemp <val> (electronic/Fermi-smearing temperature in K; NOT the thermostatistical T)
 parallel = 16             # --parallel N (number of CPU threads)
 gfn = 2                   # --gfn N (GFN-xTB method level: 0, 1, 2)
 # gfnff = true            # --gfnff (use GFN-FF instead of GFN-xTB)
@@ -181,7 +195,7 @@ temp = 298.15             # --temp <val> (temperature for Boltzmann weighting in
 maxcores = 8              # --maxcores N (max CPU cores for CENSO)
 
 [censo.general]
-temperature = 298.15      # REQUIRED — temperature in K; used to compute S = (H - G) / T
+temperature = 298.15      # temperature in K (used to compute S = (H - G) / T); inherited from [thermo].temperature unless set here
 imagthr = -100.0          # threshold for imaginary frequencies (cm-1)
 sthr = 25.0               # entropy threshold (cm-1)
 scale = 1.0               # frequency scaling factor

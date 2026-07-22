@@ -10,6 +10,15 @@
 [parallelisation]
 n_cores = 1
 
+# THERMODYNAMICS --------
+# temperature is the canonical temperature (K) at which every thermostatistical
+# quantity (H, S, G) is evaluated. It is propagated to [xtb].temperature,
+# [censo.general].temperature, [crest.confgen].temp, and [crest.entropy].temp
+# unless the corresponding key is set per-stage.
+
+[thermo]
+temperature = 298.15
+
 # LOGGING ---------------
 
 [logging]
@@ -70,6 +79,9 @@ align_iters = 50
 precision = 6
 
 # XTB -------------------
+# etemp is the electronic (Fermi-smearing) temperature only. The
+# thermostatistical temperature used for H/S/G is [thermo].temperature,
+# propagated here as [xtb].temperature and injected via a $thermo xcontrol block.
 
 [xtb]
 parallel = 1

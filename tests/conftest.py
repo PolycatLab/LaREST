@@ -50,6 +50,7 @@ def minimal_config():
             "xtb": True,
         },
         "parallelisation": {"n_cores": 1},
+        "thermo": {"temperature": 298.15},
         "reaction": {
             "type": "RER",
             "lengths": [2],
@@ -72,6 +73,7 @@ def minimal_config():
             "ohess": "vtight",
             "alpb": "toluene",
             "etemp": 298.15,
+            "temperature": 298.15,
         },
         "crest": {
             "confgen": {

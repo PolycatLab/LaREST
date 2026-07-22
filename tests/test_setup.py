@@ -6,6 +6,7 @@ import pytest
 
 from larest.setup import (
     _apply_parallelisation,
+    _apply_temperature,
     _deep_merge,
     get_config,
     parse_command_args,
@@ -76,6 +77,35 @@ class TestApplyParallelisation:
         assert result == {"rdkit": {}}
 
 
+class TestApplyTemperature:
+    def test_propagates_temperature(self):
+        config = {
+            "thermo": {"temperature": 310.0},
+            "xtb": {},
+            "crest": {"confgen": {}, "entropy": {}},
+            "censo": {"general": {}},
+        }
+        result = _apply_temperature(config, user_config={})
+        assert result["xtb"]["temperature"] == 310.0
+        assert result["censo"]["general"]["temperature"] == 310.0
+        assert result["crest"]["confgen"]["temp"] == 310.0
+        assert result["crest"]["entropy"]["temp"] == 310.0
+
+    def test_user_override_not_clobbered(self):
+        config = {
+            "thermo": {"temperature": 310.0},
+            "censo": {"general": {"temperature": 250.0}},
+        }
+        user_config = {"censo": {"general": {"temperature": 250.0}}}
+        result = _apply_temperature(config, user_config=user_config)
+        assert result["censo"]["general"]["temperature"] == 250.0
+
+    def test_no_thermo_key_is_noop(self):
+        config = {"xtb": {}}
+        result = _apply_temperature(config, user_config={})
+        assert result == {"xtb": {}}
+
+
 class TestParseCommandArgs:
     def test_scalar_value(self):
         config = {"xtb": {"gfn": 2, "etemp": 298.15}}
@@ -114,6 +144,13 @@ class TestParseCommandArgs:
         config = {"xtb": {}}
         args = parse_command_args(["xtb"], config)
         assert args == []
+
+    def test_temperature_key_is_skipped(self):
+        config = {"xtb": {"gfn": 2, "temperature": 298.15}}
+        args = parse_command_args(["xtb"], config)
+        assert "--temperature" not in args
+        assert "298.15" not in args
+        assert "--gfn" in args
 
 
 class TestGetConfig:
