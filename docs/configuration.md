@@ -55,6 +55,43 @@ n_cores = 16
 maxcores = 8    # CENSO uses fewer cores (e.g. limited by ORCA memory)
 ```
 
+## `[thermo]`
+
+Sets the temperature once; it propagates to every stage that evaluates
+thermostatistical quantities (H, S, G) automatically.
+
+```toml
+[thermo]
+temperature = 298.15    # K; the temperature at which H, S and G are evaluated
+```
+
+| Stage | Config key set | How it is applied |
+|---|---|---|
+| xTB | `[xtb].temperature` | injected via a `$thermo` xcontrol block (see `[xtb]`) |
+| CENSO | `[censo.general].temperature` | written to `.censo2rc` `[general]` |
+| CREST confgen | `[crest.confgen].temp` | `--temp N` |
+| CREST entropy | `[crest.entropy].temp` | `--temp N` |
+
+`temperature` is the single source of truth for every H/S/G calculation: it sets
+the temperature at which each tool evaluates the free energy **and** the `T` used
+to derive `S = (H − G) / T`. Keeping it in one place ensures these stay
+consistent across stages.
+
+Override a specific stage by setting its key directly (note the per-stage key
+names differ — `temperature` for xTB/CENSO, `temp` for CREST):
+
+```toml
+[thermo]
+temperature = 298.15
+
+[crest.entropy]
+temp = 310.0    # run the entropy search at a different temperature
+```
+
+> **Note.** `[thermo].temperature` is distinct from `[xtb].etemp`, the electronic
+> (Fermi-smearing) temperature, which is a numerical SCF parameter and does *not*
+> set the thermostatistical temperature.
+
 ## `[steps]`
 
 Toggle individual pipeline stages on or off.
@@ -81,11 +118,15 @@ Controls MMFF conformer generation.
 
 ## `[xtb]`
 
-All keys (except `etemp`) are passed directly as CLI flags to the `xtb` binary.
+All keys except `temperature` are passed directly as CLI flags to the `xtb`
+binary. `temperature` is **not** a CLI flag: it is injected via a `$thermo`
+xcontrol block (`xtb --input …`) so that xTB evaluates its free energy at that
+temperature, and it is used to derive `S = (H − G) / T`.
 
 | Key | Default | Description |
 |---|---|---|
-| `etemp` | `298.15` | Electronic temperature (K); used to derive S = (H − G) / T |
+| `temperature` | from `[thermo]` | Thermostatistical temperature (K) for H/S/G; injected via `$thermo`. Inherited from `[thermo].temperature` unless set here |
+| `etemp` | `298.15` | Electronic (Fermi-smearing) temperature (K) — a numerical SCF parameter, **not** the thermostatistical temperature |
 | `gfn` | `2` | GFN-xTB method level (0, 1, 2) |
 | `alpb` | `"toluene"` | ALPB implicit solvent |
 | `ohess` | `"vtight"` | Hessian level after optimisation |
@@ -98,6 +139,7 @@ All keys are passed directly as CLI flags to the `crest` binary. Separate sectio
 | Key | Default | Description |
 |---|---|---|
 | `T` | `1` | Number of CPU threads |
+| `temp` | from `[thermo]` | Temperature (K) for Boltzmann weighting (`--temp`). Inherited from `[thermo].temperature` unless set here |
 | `gfn2` / `gfnff` | | Level of theory |
 | `alpb` | `"toluene"` | ALPB implicit solvent |
 | `ewin` | `6.0` | Energy window for ensemble (kcal/mol) |
@@ -118,8 +160,25 @@ The `[censo.general]` section sets global CENSO settings:
 
 | Key | Default | Description |
 |---|---|---|
-| `temperature` | `298.15` | Temperature (K) |
+| `temperature` | from `[thermo]` | Temperature (K) for mRRHO/thermostatistics; used to derive `S = (H − G) / T`. Inherited from `[thermo].temperature` unless set here |
 | `solvent` | `"toluene"` | Solvent for implicit solvation |
+| `sm_rrho` | `"alpb"` | Solvation model for the mRRHO contribution |
+| `evaluate_rrho` | `true` | Include the GFN2-xTB mRRHO (thermal + entropy) contribution |
+| `gas_phase` | `false` | Run all calculations in the gas phase, overriding **all** solvation settings |
+
+> **Note — key names must match CENSO's fields exactly.** Keys in `[censo.*]`
+> are written verbatim into CENSO's `.censo2rc`, and CENSO **silently ignores**
+> keys it does not recognise. CENSO field names use underscores, never hyphens.
+> LaREST normalises hyphens to underscores when writing the file (so `gas-phase`
+> is corrected to `gas_phase`), but prefer the underscore form. In particular,
+> use `gas_phase` (not `gas-phase`) — with the hyphen, gas-phase would be
+> silently dropped and solvation would remain active.
+
+> **Note — where entropy comes from.** In CENSO the entropy (mRRHO) is computed
+> by GFN2-xTB (`evaluate_rrho`), not by ORCA; ORCA only supplies the electronic
+> single-point energy. The prescreening sub-stage has no mRRHO, so the `S` it
+> reports is not a true thermodynamic entropy — treat `censo_screening` and later
+> as the meaningful entropy stages.
 
 ## Boolean flags
 

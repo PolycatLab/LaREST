@@ -18,7 +18,28 @@
 - **`pytest` configuration added to `pyproject.toml`**: `testpaths = ["tests"]` and `-v` set
   as default options so `pytest` can be invoked without arguments from the project root.
 
+### Features
+
+- **Unified `[thermo].temperature` setting** (`setup.py`, `defaults.toml`): a single
+  temperature (default 298.15 K) now sets the temperature at which every stage evaluates
+  H/S/G and the `T` used to derive `S = (H − G) / T`. It propagates to `[xtb].temperature`,
+  `[censo.general].temperature`, `[crest.confgen].temp`, and `[crest.entropy].temp` unless
+  overridden per-stage. For xTB the temperature is injected via a `$thermo` xcontrol block
+  (`--input`) so xTB evaluates its free energy at that T; `[xtb].etemp` is now the electronic
+  (Fermi-smearing) temperature only and no longer doubles as the thermostatistical T.
+
 ### Bug Fixes
+
+- **`gas-phase` CENSO setting was silently ignored** (`censo.py`): CENSO's field is
+  `gas_phase` (underscore) and its config loader silently drops unrecognised keys, so the
+  hyphenated `gas-phase` written to `.censo2rc` never disabled solvation — SMD(solvent) stayed
+  active even when gas-phase was requested. `create_censorc` now normalises hyphens to
+  underscores when writing `.censo2rc`, and the reference config uses `gas_phase`.
+
+- **`censo_corrected` free energy was left stale after the entropy correction**
+  (`checkpoint.py`): `apply_entropy_correction` overwrote the entropy with the CREST
+  conformational entropy but left `G` at the CENSO refinement value, so `G ≠ H − T·S`. `G`
+  is now recomputed as `H − T·S` from the corrected entropy.
 
 - **`MolToXYZFile` wrote the same conformer to every `.xyz` file** (`base.py`): Missing
   `confId=conformer_id` argument meant all 50 conformer files were identical, making

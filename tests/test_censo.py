@@ -144,3 +144,13 @@ class TestCreateCensorc:
         create_censorc(minimal_config, tmp_path)
         content = (tmp_path / ".censo2rc").read_text()
         assert "298.15" in content
+
+    def test_censorc_normalises_hyphenated_keys(self, tmp_path, minimal_config):
+        # CENSO field names use underscores; a hyphenated key like `gas-phase`
+        # must be written as `gas_phase` or CENSO silently ignores it (leaving
+        # solvation enabled).
+        minimal_config["censo"]["general"]["gas-phase"] = True
+        create_censorc(minimal_config, tmp_path)
+        content = (tmp_path / ".censo2rc").read_text()
+        assert "gas_phase = True" in content
+        assert "gas-phase" not in content

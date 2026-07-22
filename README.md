@@ -98,6 +98,28 @@ maxcores = 8      # CENSO uses fewer cores (e.g. limited by memory per ORCA job)
 > A common pattern is to set `n_cores` to the total available cores and lower
 > `maxcores` if ORCA jobs are memory-constrained.
 
+### `[thermo]`
+
+Sets the temperature once; it propagates to every stage that evaluates
+thermostatistical quantities (H, S, G):
+
+```toml
+[thermo]
+temperature = 298.15    # K; sets both the T each tool evaluates G at and the
+                        # T used to derive S = (H - G) / T
+```
+
+| Stage | Config key | How it is applied |
+|---|---|---|
+| xTB | `[xtb].temperature` | injected via a `$thermo` xcontrol block |
+| CENSO | `[censo.general].temperature` | written to `.censo2rc` |
+| CREST confgen | `[crest.confgen].temp` | `--temp N` |
+| CREST entropy | `[crest.entropy].temp` | `--temp N` |
+
+Override a single stage by setting its key directly (`temperature` for xTB/CENSO,
+`temp` for CREST). This is distinct from `[xtb].etemp`, the electronic
+(Fermi-smearing) temperature, which does **not** set the thermostatistical T.
+
 ### `[reaction]`
 
 The most important section — defines what to compute.
@@ -141,11 +163,12 @@ Controls MMFF conformer generation. Key options:
 
 ### `[xtb]`
 
-Options passed directly as CLI flags to the `xtb` binary. The `etemp` key is used internally to derive entropy via S = (H − G) / T and is not passed as a flag.
+Options passed directly as CLI flags to the `xtb` binary, except `temperature`. The `temperature` key (inherited from `[thermo]`) is injected via a `$thermo` xcontrol block so xTB evaluates its free energy at that T, and is used to derive entropy via S = (H − G) / T. `etemp` is the electronic (Fermi-smearing) temperature only and does not affect the thermostatistics.
 
 | Key | Description |
 |---|---|
-| `etemp` | Electronic temperature in K (required) |
+| `temperature` | Thermostatistical temperature in K for H/S/G (inherited from `[thermo].temperature`) |
+| `etemp` | Electronic (Fermi-smearing) temperature in K — a numerical SCF parameter, not the thermostatistical T |
 | `gfn` | GFN-xTB method level (0, 1, or 2) |
 | `alpb` | Implicit solvent (e.g. `"toluene"`) |
 | `ohess` | Hessian level after optimisation (e.g. `"vtight"`) |
@@ -165,7 +188,13 @@ Options passed directly as CLI flags to `crest`. Separate sections control the c
 
 ### `[censo.*]`
 
-Controls the four CENSO DFT sub-stages. Each sub-stage (`prescreening`, `screening`, `optimization`, `refinement`) has its own section with `func`, `basis`, `sm`, and `threshold` keys. The `[censo.general]` section sets global CENSO settings including `temperature` and `solvent`.
+Controls the four CENSO DFT sub-stages. Each sub-stage (`prescreening`, `screening`, `optimization`, `refinement`) has its own section with `func`, `basis`, `sm`, and `threshold` keys. The `[censo.general]` section sets global CENSO settings including `temperature` (inherited from `[thermo]`), `solvent`, and `gas_phase` (set `true` to run in the gas phase, overriding all solvation settings).
+
+> [!NOTE]
+> Keys under `[censo.*]` are written verbatim into CENSO's `.censo2rc`, and CENSO
+> **silently ignores** unrecognised keys. CENSO field names use underscores — use
+> `gas_phase`, not `gas-phase`. (LaREST normalises hyphens to underscores when
+> writing the file, but the underscore form is preferred.)
 
 ## Output
 

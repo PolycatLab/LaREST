@@ -206,7 +206,7 @@ consider_sym = true       # consider molecular symmetry
 bhess = true              # use biased hessian approximation
 rmsdbias = false          # apply RMSD bias
 balance = true            # balance calculation workload
-gas-phase = false         # run gas-phase calculation (no solvation)
+gas_phase = false         # run gas-phase calculation (overrides all solvation settings)
 copy_mo = true            # copy MO files between calculations
 retry_failed = true       # retry failed calculations
 

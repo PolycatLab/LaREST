@@ -69,8 +69,14 @@ def create_censorc(config: dict[str, Any], temp_dir: Path) -> None:
             if header in ("cli", "paths"):
                 continue
             fstream.write(f"[{header}]\n")
+            # CENSO's .censo2rc keys are pydantic field names (valid Python
+            # identifiers, so always underscores); unknown keys are silently
+            # ignored (pydantic extra="ignore"). Normalise any hyphens to
+            # underscores so e.g. `gas-phase` reaches CENSO as `gas_phase`
+            # instead of being silently dropped (leaving solvation enabled).
             fstream.writelines(
-                f"{key} = {value}\n" for key, value in sub_config.items()
+                f"{key.replace('-', '_')} = {value}\n"
+                for key, value in sub_config.items()
             )
             fstream.write("\n")
 

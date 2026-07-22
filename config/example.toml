@@ -16,6 +16,18 @@
 [parallelisation]
 n_cores = 8
 
+# THERMODYNAMICS --------
+# Set the temperature once; it is applied to every stage that evaluates
+# thermostatistical quantities (H, S, G) and sets the T used to derive
+# S = (H - G) / T. Propagated to [xtb].temperature, [censo.general].temperature,
+# [crest.confgen].temp, and [crest.entropy].temp unless overridden per-stage, e.g.:
+#   [crest.entropy]
+#   temp = 310.0
+# Note: this is distinct from [xtb].etemp, the electronic Fermi-smearing temperature.
+
+[thermo]
+temperature = 298.15                  # K; temperature for all H/S/G calculations
+
 # REACTION --------------
 
 [reaction]
