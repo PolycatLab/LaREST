@@ -9,7 +9,7 @@ LaREST is a computational chemistry pipeline for predicting the thermodynamics o
 
 Two reaction types are supported:
 
-- **RER** (Ring Equilibrium Reaction) — no initiator; polymer chain only
+- **RER** (Ring Expansion Reaction) — no initiator; polymer chain only
 - **ROR** (Ring-Opening polymerization Reaction) — includes an initiating alcohol
 
 
