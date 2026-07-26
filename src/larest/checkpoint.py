@@ -41,12 +41,18 @@ class PipelineStage(IntEnum):
 def restore_results(
     dir_path: Path,
     temperature: float = 298.15,
+    steps: dict[str, bool] | None = None,
 ) -> tuple[dict[str, dict[str, float | None]], PipelineStage]:
     """Load previously completed pipeline results and determine the next stage to run.
 
-    Inspects the expected output files for each pipeline stage in order.  The
-    first missing or unreadable file determines the stage that must be (re-)run.
-    All successfully loaded results are merged and returned alongside that stage.
+    Inspects the expected output files for each *enabled* pipeline stage in
+    order.  The first enabled stage with a missing or unreadable file determines
+    the stage that must be (re-)run.  Stages that are disabled in *steps* are
+    skipped entirely — they neither trigger a re-run nor short-circuit the
+    inspection of later stages, so a completed downstream stage (e.g. CENSO) is
+    still recognised as a valid checkpoint even when an upstream stage (e.g.
+    ``crest_confgen``) is turned off.  All successfully loaded results are merged
+    and returned alongside that stage.
 
     Parameters
     ----------
@@ -56,6 +62,11 @@ def restore_results(
     temperature : float
         Temperature in Kelvin used to recompute the corrected free energy when
         restoring a CREST entropy checkpoint (see :func:`apply_entropy_correction`).
+    steps : dict[str, bool] | None
+        The ``[steps]`` config section indicating which stages are enabled.  Keys
+        are ``rdkit``, ``crest_confgen``, ``censo``, and ``crest_entropy``.  A
+        missing key is treated as enabled.  When ``None`` (the default), every
+        stage is treated as enabled.
 
     Returns
     -------
@@ -64,36 +75,39 @@ def restore_results(
         checkpoint files that were found.  Parameters that have not yet been
         computed remain ``None``.
     stage : PipelineStage
-        The earliest pipeline stage whose results were not found.  The caller
-        should (re-)run this stage and all subsequent ones.
+        The earliest enabled pipeline stage whose results were not found.  The
+        caller should (re-)run this stage and all subsequent ones.
     """
+    if steps is None:
+        steps = {}
+
     results: dict[str, dict[str, float | None]] = {
         section: dict.fromkeys(THERMODYNAMIC_PARAMS, None)
         for section in PIPELINE_SECTIONS
     }
 
-    if not _load_stage(
+    if steps.get("rdkit", True) and not _load_stage(
         path=dir_path / "xtb" / "rdkit" / "results.csv",
         load_fn=lambda path: _parse_rdkit(results, path),
         label="rdkit",
     ):
         return results, PipelineStage.RDKIT
 
-    if not _load_stage(
+    if steps.get("crest_confgen", True) and not _load_stage(
         path=dir_path / "xtb" / "crest" / "results.json",
         load_fn=lambda path: results.update({"crest": json.loads(path.read_text())}),
         label="crest_confgen",
     ):
         return results, PipelineStage.CREST_CONFGEN
 
-    if not _load_stage(
+    if steps.get("censo", True) and not _load_stage(
         path=dir_path / "censo" / "results.json",
         load_fn=lambda path: results.update(json.loads(path.read_text())),
         label="censo",
     ):
         return results, PipelineStage.CENSO
 
-    if not _load_stage(
+    if steps.get("crest_entropy", True) and not _load_stage(
         path=dir_path / "crest_entropy" / "results.json",
         load_fn=lambda path: _parse_crest_entropy(results, path, temperature),
         label="crest_entropy",

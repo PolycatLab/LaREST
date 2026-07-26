@@ -85,7 +85,11 @@ def run_pipeline(
     temperature: float = (
         config.get("censo", {}).get("general", {}).get("temperature", 298.15)
     )
-    results, stage = restore_results(dir_path, temperature=temperature)
+    results, stage = restore_results(
+        dir_path,
+        temperature=temperature,
+        steps=config["steps"],
+    )
 
     if config["steps"]["rdkit"] and stage <= PipelineStage.RDKIT:
         results |= run_rdkit(mol.smiles, dir_path, config)

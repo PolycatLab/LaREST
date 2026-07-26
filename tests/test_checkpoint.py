@@ -247,3 +247,32 @@ class TestRestoreResults:
         (xtb_dir / "results.csv").write_text("not,a,valid,csv\n!!!\n")
         _, stage = restore_results(tmp_path)
         assert stage == PipelineStage.RDKIT
+
+    def test_disabled_crest_does_not_block_censo_checkpoint(self, tmp_path):
+        """With crest_confgen off, a completed CENSO stage must still resume.
+
+        The missing CREST checkpoint should be skipped rather than treated as
+        the next stage to run, so the pipeline resumes past the (finished)
+        expensive CENSO stage.
+        """
+        _make_rdkit_checkpoint(tmp_path)
+        _make_censo_checkpoint(tmp_path)
+        steps = {"crest_confgen": False}
+        _, stage = restore_results(tmp_path, steps=steps)
+        assert stage == PipelineStage.CREST_ENTROPY
+
+    def test_disabled_crest_reruns_missing_censo(self, tmp_path):
+        """With crest_confgen off and CENSO not yet done, resume at CENSO."""
+        _make_rdkit_checkpoint(tmp_path)
+        steps = {"crest_confgen": False}
+        _, stage = restore_results(tmp_path, steps=steps)
+        assert stage == PipelineStage.CENSO
+
+    def test_disabled_crest_entropy_returns_finish(self, tmp_path):
+        """A disabled trailing stage should not prevent reaching FINISH."""
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        _make_censo_checkpoint(tmp_path)
+        steps = {"crest_entropy": False}
+        _, stage = restore_results(tmp_path, steps=steps)
+        assert stage == PipelineStage.FINISH

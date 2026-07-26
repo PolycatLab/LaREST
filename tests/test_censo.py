@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from larest.censo import (
+    build_rdkit_ensemble_xyz,
     create_censorc,
     extract_best_conformer_xyz,
     parse_best_censo_conformers,
@@ -154,3 +155,56 @@ class TestCreateCensorc:
         content = (tmp_path / ".censo2rc").read_text()
         assert "gas_phase = True" in content
         assert "gas-phase" not in content
+
+
+class TestBuildRdkitEnsembleXyz:
+    @staticmethod
+    def _write_conformer(dir_path, conformer_id, comment):
+        conf_dir = dir_path / "xtb" / "rdkit" / f"conformer_{conformer_id}"
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        xyz = conf_dir / f"conformer_{conformer_id}.xtbopt.xyz"
+        xyz.write_text(f"1\n{comment}\nO 0.0 0.0 0.0\n")
+
+    @staticmethod
+    def _write_results(dir_path, rows):
+        results_dir = dir_path / "xtb" / "rdkit"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        lines = ["conformer_id,H,S,G"]
+        lines += [f"{cid},0.0,0.0,{g}" for cid, g in rows]
+        (results_dir / "results.csv").write_text("\n".join(lines) + "\n")
+
+    def test_orders_conformers_by_ascending_g(self, tmp_path):
+        # conformer 0 has higher G than conformer 1, so conformer 1 comes first.
+        self._write_results(tmp_path, [(0, -1.0), (1, -2.0)])
+        self._write_conformer(tmp_path, 0, "conf0")
+        self._write_conformer(tmp_path, 1, "conf1")
+
+        out = tmp_path / "ensemble.xyz"
+        build_rdkit_ensemble_xyz(dir_path=tmp_path, output_xyz_file=out)
+
+        text = out.read_text()
+        assert text.index("conf1") < text.index("conf0")
+        assert text.count("O 0.0 0.0 0.0") == 2
+
+    def test_skips_missing_geometries(self, tmp_path):
+        self._write_results(tmp_path, [(0, -1.0), (1, -2.0)])
+        # Only conformer 0 has an xtbopt geometry on disk.
+        self._write_conformer(tmp_path, 0, "conf0")
+
+        out = tmp_path / "ensemble.xyz"
+        build_rdkit_ensemble_xyz(dir_path=tmp_path, output_xyz_file=out)
+
+        text = out.read_text()
+        assert "conf0" in text
+        assert "conf1" not in text
+
+    def test_missing_results_csv_raises(self, tmp_path):
+        out = tmp_path / "ensemble.xyz"
+        with pytest.raises(FileNotFoundError, match="RDKit results"):
+            build_rdkit_ensemble_xyz(dir_path=tmp_path, output_xyz_file=out)
+
+    def test_no_geometries_raises(self, tmp_path):
+        self._write_results(tmp_path, [(0, -1.0)])
+        out = tmp_path / "ensemble.xyz"
+        with pytest.raises(RuntimeError, match="no xTB-optimised"):
+            build_rdkit_ensemble_xyz(dir_path=tmp_path, output_xyz_file=out)

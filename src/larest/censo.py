@@ -14,8 +14,10 @@ sub-stage, and entropy is derived as S = (H - G) / T.
 
 from __future__ import annotations
 
+import csv
 import json
 import logging
+import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -87,6 +89,82 @@ def create_censorc(config: dict[str, Any], temp_dir: Path) -> None:
     logger.debug(f"Created censo config file at {censorc_file}")
 
 
+def build_rdkit_ensemble_xyz(dir_path: Path, output_xyz_file: Path) -> None:
+    """Assemble a multi-conformer XYZ ensemble from the xTB-optimised RDKit conformers.
+
+    Used as the CENSO input when the CREST conformer-generation stage is
+    skipped.  Reads the xTB ranking in ``xtb/rdkit/results.csv``, then
+    concatenates each conformer's xTB-optimised geometry
+    (``xtb/rdkit/conformer_<id>/conformer_<id>.xtbopt.xyz``) into a single
+    multi-conformer XYZ file, ordered by ascending free energy ``G`` so the
+    lowest-energy conformer appears first.
+
+    Parameters
+    ----------
+    dir_path : Path
+        Root molecule output directory (e.g. ``output/Monomer/<slug>``).  Must
+        contain a completed RDKit stage.
+    output_xyz_file : Path
+        Destination path for the assembled multi-conformer XYZ file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the RDKit xTB results CSV is missing.
+    RuntimeError
+        If no xTB-optimised conformer geometries could be found.
+    """
+    results_file = dir_path / "xtb" / "rdkit" / "results.csv"
+    if not results_file.exists():
+        raise FileNotFoundError(
+            f"Cannot build CENSO input: RDKit results not found at {results_file}. "
+            "Enable [steps].rdkit or [steps].crest_confgen.",
+        )
+
+    with open(results_file, newline="") as fstream:
+        rows = [row for row in csv.DictReader(fstream) if row.get("conformer_id")]
+
+    def _sort_key(row: dict[str, str]) -> tuple[bool, float]:
+        try:
+            g = float(row["G"])
+        except (TypeError, ValueError):
+            g = math.nan
+        # Conformers with an undefined G are placed last.
+        return (math.isnan(g), g)
+
+    rows.sort(key=_sort_key)
+
+    n_written = 0
+    with open(output_xyz_file, "w") as fout:
+        for row in rows:
+            conformer_id = int(float(row["conformer_id"]))
+            conformer_xyz_file = (
+                dir_path
+                / "xtb"
+                / "rdkit"
+                / f"conformer_{conformer_id}"
+                / f"conformer_{conformer_id}.xtbopt.xyz"
+            )
+            if not conformer_xyz_file.exists():
+                logger.warning(
+                    f"Skipping conformer {conformer_id}: missing {conformer_xyz_file}",
+                )
+                continue
+            block = conformer_xyz_file.read_text()
+            fout.write(block if block.endswith("\n") else block + "\n")
+            n_written += 1
+
+    if n_written == 0:
+        raise RuntimeError(
+            f"Failed to build CENSO input: no xTB-optimised RDKit conformers found "
+            f"under {dir_path / 'xtb' / 'rdkit'}",
+        )
+
+    logger.debug(
+        f"Wrote {n_written} RDKit conformers to CENSO input file {output_xyz_file}",
+    )
+
+
 def run_censo(
     dir_path: Path,
     output_dir: Path,
@@ -102,8 +180,11 @@ def run_censo(
     Parameters
     ----------
     dir_path : Path
-        Root molecule output directory.  Must contain
-        ``crest_confgen/crest_conformers.xyz`` from a completed CREST stage.
+        Root molecule output directory.  Uses
+        ``crest_confgen/crest_conformers.xyz`` from a completed CREST stage when
+        present; if the CREST stage was skipped (``[steps].crest_confgen =
+        false``), falls back to building the conformer ensemble from the
+        xTB-optimised RDKit conformers instead.
     output_dir : Path
         Root run output directory; the ``.censo2rc`` file is written to
         ``<output_dir>/temp/``.
@@ -131,11 +212,19 @@ def run_censo(
     censo_output_file = censo_dir / "censo.txt"
     censo_config_file = temp_dir / ".censo2rc"
 
-    # CENSO sets its working directory to the parent of --input, so copy the
+    # CENSO sets its working directory to the parent of --input, so place the
     # conformers file into censo_dir to ensure all CENSO output lands there.
     crest_conformers_src = dir_path / "crest_confgen" / "crest_conformers.xyz"
     censo_input_file = censo_dir / "crest_conformers.xyz"
-    shutil.copy(crest_conformers_src, censo_input_file)
+    if crest_conformers_src.exists():
+        shutil.copy(crest_conformers_src, censo_input_file)
+    else:
+        # CREST stage was skipped; fall back to the RDKit conformer ensemble.
+        logger.info(
+            f"No CREST ensemble at {crest_conformers_src}; "
+            "building CENSO input from RDKit conformers",
+        )
+        build_rdkit_ensemble_xyz(dir_path=dir_path, output_xyz_file=censo_input_file)
 
     censo_args: list[str] = [
         "censo",
