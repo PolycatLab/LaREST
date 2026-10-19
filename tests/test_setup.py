@@ -226,7 +226,16 @@ class TestSolvent:
     def test_user_censo_solvent_kept(self, tmp_path):
         config = self._config(tmp_path, '[censo.general]\nsolvent = "chcl3"\n')
         assert config["censo"]["general"]["solvent"] == "chcl3"
-        assert config["censo"]["general"]["gas_phase"] is False
+        assert not config["censo"]["general"].get("gas_phase")
+
+    def test_user_censo_solvent_overrides_gas(self, tmp_path):
+        config = self._config(
+            tmp_path,
+            '[thermo]\nsolvent = "gas"\n[censo.general]\nsolvent = "water"\n',
+        )
+        assert config["censo"]["general"]["solvent"] == "water"
+        assert not config["censo"]["general"].get("gas_phase")
+        assert config["xtb"]["alpb"] is False
 
     def test_user_gbsa_not_overridden(self, tmp_path):
         config = self._config(tmp_path, '[xtb]\ngbsa = "water"\n')

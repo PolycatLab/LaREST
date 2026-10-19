@@ -25,6 +25,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from rdkit.Chem.rdmolfiles import MolFromSmiles, MolToSmiles, SDMolSupplier
+from rdkit.Chem.rdmolops import RemoveHs
+
 from larest.chem import (
     AUTO_INITIATOR,
     analyse_monomer,
@@ -146,6 +149,37 @@ def _get_molecules(
     return molecules, warnings
 
 
+def _check_stored_molecule(old: Path, smiles: str) -> str | None:
+    """Check that a legacy directory holds the molecule it is being assigned to.
+
+    Legacy directory names do not record the SMILES, and the polymer built
+    for a monomer can differ between LaREST versions (e.g. when a monomer has
+    several breakable bonds), so the molecule stored in the RDKit conformer
+    file is compared with *smiles*.
+
+    Returns
+    -------
+    str | None
+        Reason the directory does not match, or ``None`` if it matches.  A
+        directory without an RDKit conformer file cannot be checked and is
+        reported as a mismatch.
+    """
+    sdf_file = old / "rdkit" / "conformers.sdf"
+    if not sdf_file.exists():
+        return f"cannot verify its molecule ({sdf_file} missing)"
+    stored = next(iter(SDMolSupplier(str(sdf_file))), None)
+    if stored is None:
+        return f"cannot read the molecule in {sdf_file}"
+    stored_smiles = MolToSmiles(RemoveHs(stored))
+    expected_smiles = MolToSmiles(MolFromSmiles(smiles))
+    if stored_smiles != expected_smiles:
+        return (
+            f"it contains {stored_smiles}, but the current version builds "
+            f"{expected_smiles}; recompute it"
+        )
+    return None
+
+
 def plan_migration(config: dict[str, Any], output_dir: Path) -> MigrationPlan:
     """Plan the renames needed to resume a legacy output directory.
 
@@ -162,8 +196,9 @@ def plan_migration(config: dict[str, Any], output_dir: Path) -> MigrationPlan:
     -------
     MigrationPlan
         Safe moves, plus warnings for directories that are skipped because
-        they are claimed by several molecules (legacy slug collisions) or
-        because the new directory already exists.
+        they are claimed by several molecules (legacy slug collisions), because
+        the new directory already exists, or because the molecule stored in
+        the directory differs from the one the current version builds.
 
     Raises
     ------
@@ -198,6 +233,10 @@ def plan_migration(config: dict[str, Any], output_dir: Path) -> MigrationPlan:
         (new,) = targets
         if new.exists():
             warnings.append(f"Not moving {old}: {new} already exists")
+            continue
+        mismatch = _check_stored_molecule(old, targets[new])
+        if mismatch is not None:
+            warnings.append(f"Not moving {old}: {mismatch}")
             continue
         moves.append(PlannedMove(old=old, new=new))
     return MigrationPlan(moves=moves, warnings=warnings)

@@ -35,8 +35,10 @@ class TestExtrapolate:
         )
         assert intercept == pytest.approx(-10.0)
 
-    def test_single_point(self):
-        assert extrapolate_to_infinite_length([2], [-5.0]) == (-5.0, None)
+    def test_single_point_not_extrapolated(self):
+        value, r2 = extrapolate_to_infinite_length([2], [-5.0])
+        assert np.isnan(value)
+        assert r2 is None
 
     def test_no_points(self):
         value, r2 = extrapolate_to_infinite_length([], [])
@@ -139,10 +141,14 @@ class TestHelpers:
         )
         assert not low_r2_warning(exact)
 
+    def test_two_points_have_no_r2(self):
+        _, r2 = extrapolate_to_infinite_length([2, 3], [-5.0, -6.0])
+        assert r2 is None
+
     def test_format(self):
         matrix = compute_energy_matrix(
             _MONOMER,
-            {2: -205_000.0, 3: -310_000.0},
+            {2: -205_000.0, 3: -310_000.0, 4: -412_000.0},
             None,
             "RER",
         )

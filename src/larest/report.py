@@ -105,6 +105,8 @@ def collect_results(
     record: MonomerRecord,
     monomer_dir_name: str,
     summary_dir: Path,
+    *,
+    use_censo: bool = True,
 ) -> Path:
     """Collect the key outputs for one monomer into ``<output>/results/<monomer>/``.
 
@@ -118,6 +120,9 @@ def collect_results(
         Name of the monomer's output directory.
     summary_dir : Path
         Directory containing the summary CSVs and energy matrices.
+    use_censo : bool
+        Whether to take structures from CENSO output (``False`` if the CENSO
+        stage is disabled).
 
     Returns
     -------
@@ -130,7 +135,7 @@ def collect_results(
     for label, results in record.molecules.items():
         if results is None or results.dir_path is None:
             continue
-        structure = get_best_structure(results.dir_path)
+        structure = get_best_structure(results.dir_path, use_censo=use_censo)
         if structure is None:
             logger.warning(f"No final structure found for {label} ({results.smiles})")
             continue
@@ -243,6 +248,7 @@ def _format_settings(config: dict[str, Any]) -> list[str]:
         [
             f"Temperature:    {thermo.get('temperature', 298.15)} K",
             f"Solvent:        {_format_solvent(config)}",
+            f"Standard state: {_format_standard_state(config)}",
             "Stages:         "
             + ", ".join(
                 f"{stage} {'on' if enabled else 'off'}"
@@ -287,6 +293,13 @@ def _format_solvent(config: dict[str, Any]) -> str:
         censo = general.get("solvent", "-")
     xtb = config.get("xtb", {}).get("alpb") or "gas phase"
     return f"{config.get('thermo', {}).get('solvent', '-')} (xTB/CREST: {xtb}, CENSO: {censo})"
+
+
+def _format_standard_state(config: dict[str, Any]) -> str:
+    standard_state = config.get("thermo", {}).get("standard_state", "auto")
+    if standard_state == "auto":
+        return "1 M with implicit solvation, 1 atm in the gas phase (G and S)"
+    return f"{standard_state} (G and S)"
 
 
 def _format_crest(config: dict[str, Any], mode: str) -> str:

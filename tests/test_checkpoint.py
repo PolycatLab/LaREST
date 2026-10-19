@@ -10,6 +10,7 @@ import pytest
 from larest.checkpoint import (
     PipelineStage,
     apply_entropy_correction,
+    combine_entropy,
     get_entropy_reference_section,
     restore_results,
     write_stage_settings,
@@ -447,3 +448,97 @@ class TestEntropyReferenceSection:
             "censo_refinement_min": {"H": None, "S": None},
         }
         assert get_entropy_reference_section(results) == "censo_optimization_min"
+
+
+class TestChainedSettings:
+    def _config(self):
+        return {
+            "steps": {
+                "rdkit": True,
+                "crest_confgen": True,
+                "censo": True,
+                "crest_entropy": True,
+                "xtb": True,
+            },
+            "rdkit": {"n_conformers": 10},
+            "xtb": {"gfn": 2},
+            "crest": {"confgen": {"ewin": 6.0}, "entropy": {}},
+            "censo": {"refinement": {"func": "wb97x-v"}},
+        }
+
+    def test_upstream_change_invalidates_later_stage_after_interrupted_rerun(
+        self,
+        tmp_path,
+    ):
+        """An RDKit settings change must invalidate CREST even if the RDKit
+        rerun completed (new stamp) but the CREST rerun was interrupted."""
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        for stage in (PipelineStage.RDKIT, PipelineStage.CREST_CONFGEN):
+            write_stage_settings(tmp_path, stage, config, "C")
+        config["rdkit"]["n_conformers"] = 50
+        # RDKit was re-run with the new settings, then the job died
+        write_stage_settings(tmp_path, PipelineStage.RDKIT, config, "C")
+        _, stage = restore_results(
+            tmp_path,
+            steps={"censo": False, "crest_entropy": False},
+            config=config,
+            smiles="C",
+        )
+        assert stage == PipelineStage.CREST_CONFGEN
+
+    def test_disabling_upstream_stage_invalidates_censo(self, tmp_path):
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        _make_censo_checkpoint(tmp_path)
+        for stage in (
+            PipelineStage.RDKIT,
+            PipelineStage.CREST_CONFGEN,
+            PipelineStage.CENSO,
+        ):
+            write_stage_settings(tmp_path, stage, config, "C")
+        config["steps"]["crest_confgen"] = False
+        _, stage = restore_results(
+            tmp_path,
+            steps=config["steps"],
+            config=config,
+            smiles="C",
+        )
+        assert stage == PipelineStage.CENSO
+
+
+class TestCrestCheckpointWithoutXtb:
+    def test_crest_ensemble_is_checkpoint(self, tmp_path):
+        _make_rdkit_checkpoint(tmp_path)
+        crest_dir = tmp_path / "crest_confgen"
+        crest_dir.mkdir()
+        (crest_dir / "crest_conformers.xyz").write_text("1\n\nO 0 0 0\n")
+        _, stage = restore_results(
+            tmp_path,
+            steps={"xtb": False, "censo": False, "crest_entropy": False},
+        )
+        assert stage == PipelineStage.FINISH
+
+
+class TestCombineEntropy:
+    def test_without_censo_enthalpy_stores_raw(self, caplog):
+        results = {"censo_refinement_min": {"H": None, "S": None, "G": None}}
+        entropy = {"S_conf": 1.0, "S_rrho": 0.5, "S_total": 1.5}
+        combined = combine_entropy(results, entropy, 298.15)
+        assert combined == {"crest_entropy": entropy}
+        assert "No CENSO enthalpy" in caplog.text
+
+    def test_with_censo_applies_correction(self):
+        results = {"censo_refinement_min": {"E": -1.0, "H": -2.0, "S": 3.0, "G": -4.0}}
+        entropy = {"S_conf": 1.0, "S_rrho": 0.5, "S_total": 1.5}
+        combined = combine_entropy(results, entropy, 298.15)
+        assert combined["censo_corrected"]["S"] == pytest.approx(4.5)
+
+    def test_censo_disabled_stores_raw(self):
+        results = {"censo_refinement_min": {"E": -1.0, "H": -2.0, "S": 3.0, "G": -4.0}}
+        entropy = {"S_conf": 1.0, "S_rrho": 0.5, "S_total": 1.5}
+        assert combine_entropy(results, entropy, 298.15, censo_enabled=False) == {
+            "crest_entropy": entropy,
+        }

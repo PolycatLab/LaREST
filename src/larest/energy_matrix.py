@@ -53,20 +53,22 @@ def extrapolate_to_infinite_length(
     Returns
     -------
     tuple[float, float | None]
-        The extrapolated value (NaN if there are no valid points, or the single
-        value if there is only one) and the R² of the fit (``None`` if fewer
-        than two points were fitted).
+        The extrapolated value (NaN if there are fewer than two valid points)
+        and the R² of the fit (``None`` if fewer
+        than three points were fitted, since two points always fit exactly).
     """
     x = np.array(lengths, dtype=np.float64)
     y = np.array(values, dtype=np.float64)
     valid = ~np.isnan(x) & ~np.isnan(y)
     x, y = x[valid], y[valid]
-    if len(x) == 0:
+    if len(x) < 2:
+        # no extrapolation is possible from a single chain length
         return np.nan, None
-    if len(x) == 1:
-        return float(y[0]), None
 
     slope, intercept = np.polyfit(1.0 / x, y, 1)
+    if len(x) == 2:
+        # a line through two points always fits exactly; R² is meaningless
+        return float(intercept), None
     residuals = y - (slope / x + intercept)
     ss_tot = float(np.sum((y - y.mean()) ** 2))
     r2 = 1.0 - float(np.sum(residuals**2)) / ss_tot if ss_tot > 0 else 1.0

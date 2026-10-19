@@ -35,7 +35,7 @@ from larest.constants import (
     MIN_SUFFIX,
     THERMODYNAMIC_PARAMS,
 )
-from larest.output import create_dir
+from larest.output import create_dir, remove_dir
 from larest.setup import parse_command_args
 
 logger = logging.getLogger(__name__)
@@ -279,6 +279,10 @@ def run_censo(
     create_censorc(config=config, temp_dir=temp_dir)
 
     censo_dir = dir_path / "censo"
+    # CENSO writes fixed file names per sub-stage; clear any previous run so
+    # that output of sub-stages not run this time cannot be mistaken as current
+    if censo_dir.exists():
+        remove_dir(censo_dir)
     create_dir(censo_dir)
 
     censo_output_file = censo_dir / "censo.txt"

@@ -27,6 +27,8 @@
 # [thermo]
 # temperature = 298.15  # canonical thermostatistical temperature (default: 298.15)
 # solvent = "toluene"   # implicit solvent for all stages, or "gas" (default: "toluene")
+# standard_state = "auto"  # G and S standard state: "auto" (1 M in solution,
+#                          # 1 atm in gas phase), "1M" or "1atm" (default: "auto")
 
 # LOGGING -----------
 

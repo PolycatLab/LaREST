@@ -23,6 +23,9 @@ temperature = 298.15
 # Per-stage solvation keys ([xtb].alpb, [crest.*].alpb, [censo.general].solvent
 # or gas_phase) override it.
 solvent = "toluene"
+# standard state of G and S: "auto" (1 M with implicit solvation, 1 atm in the
+# gas phase), "1M", or "1atm" (the ideal-gas state used by xTB/CENSO thermostatistics)
+standard_state = "auto"
 
 # LOGGING ---------------
 

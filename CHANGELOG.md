@@ -37,6 +37,34 @@
 
 ### Bug Fixes
 
+- **Solution-phase free energies mixed standard states** (`standard_state.py`): xTB and
+  CENSO combine 1 atm ideal-gas thermostatistics with 1 M → 1 M solvation free
+  energies, so reaction ΔG and ΔS were off by Δn·7.9 kJ/mol and Δn·26.6 J/mol/K (Δn =
+  change in the number of molecules, e.g. −1 for ROR with n = 1). With implicit
+  solvation, G and S are now reported for a 1 M standard state
+  (`[thermo].standard_state`, default `"auto"`).
+- **Resume could reuse results built on outdated upstream stages** (`checkpoint.py`):
+  each stage's settings stamp now includes the settings of all earlier enabled stages,
+  so e.g. a changed RDKit setting invalidates CREST, CENSO and entropy results even if
+  a re-run was interrupted. Stamps from the previous version are therefore seen as
+  changed once.
+- **Stale CENSO sub-stage files were read after a re-run** (`censo.py`): the CENSO
+  directory is now cleared before CENSO runs, so e.g. an old `3_REFINEMENT.json` is not
+  taken as current when the refinement is disabled.
+- **CREST entropy failed, and re-ran on every resume, without CENSO enthalpies**
+  (`checkpoint.combine_entropy`): if no CENSO stage has H and S, the CREST entropies
+  are stored as `crest_entropy` instead.
+- **CREST conformer generation re-ran on every resume with `[steps].xtb = false`**: the
+  CREST ensemble is now the checkpoint in that case.
+- **Old CENSO structures and sections were reused after disabling a stage**: the final
+  structure ignores CENSO output when CENSO is disabled, and sections are no longer
+  carried over from an earlier `results.json`.
+- **`[thermo].solvent = "gas"` overrode an explicit `[censo.general].solvent`.**
+- **`larest-migrate` could attach results to a different polymer**: it now checks that
+  the molecule stored in each legacy directory (`rdkit/conformers.sdf`) is the one the
+  current version builds, and skips the directory otherwise.
+- **R² of the 1/n extrapolation is no longer reported for two chain lengths**, where
+  the fit is always exact.
 - **CENSO enthalpy and entropy were wrong** (`censo.py`): CENSO's `avE` (the DFT
   electronic energy, without thermal corrections or solvation) was stored as `H`, so
   `S = (H - G) / T = -(ΔGsolv + GmRRHO) / T` was meaningless (typically negative) and

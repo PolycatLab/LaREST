@@ -149,7 +149,10 @@ def run_crest_entropy(
     subprocess.CalledProcessError
         If the CREST process exits with a non-zero return code.
     """
-    reference_xyz_file = get_best_structure(dir_path)
+    reference_xyz_file = get_best_structure(
+        dir_path,
+        use_censo=config["steps"].get("censo", True),
+    )
     if reference_xyz_file is None:
         raise ValueError("Failed to find a reference structure for crest_entropy")
     logger.debug(f"Using {reference_xyz_file} as the crest_entropy reference")
@@ -247,7 +250,7 @@ def parse_crest_entropy_output(
     return crest_output
 
 
-def get_best_structure(dir_path: Path) -> Path | None:
+def get_best_structure(dir_path: Path, *, use_censo: bool = True) -> Path | None:
     """Write and return the lowest free energy structure of a molecule.
 
     Uses the most refined stage available: the lowest free energy conformer
@@ -259,6 +262,9 @@ def get_best_structure(dir_path: Path) -> Path | None:
     ----------
     dir_path : Path
         Root molecule output directory.
+    use_censo : bool
+        Whether to consider CENSO output (``False`` if the CENSO stage is
+        disabled, so that output from an earlier run is not used).
 
     Returns
     -------
@@ -267,7 +273,7 @@ def get_best_structure(dir_path: Path) -> Path | None:
         produced one.
     """
     censo_dir = dir_path / "censo"
-    section = get_last_censo_section(censo_dir)
+    section = get_last_censo_section(censo_dir) if use_censo else None
     if section is not None:
         best_censo_xyz_file = censo_dir / "censo_best.xyz"
         try:

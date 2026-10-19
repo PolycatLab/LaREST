@@ -57,6 +57,8 @@ _STAGE_DIRS: dict[PipelineStage, str] = {
     PipelineStage.CREST_ENTROPY: "crest_entropy",
 }
 _SETTINGS_FILE = "larest_settings.json"
+# [steps] keys of the pipeline stages, in order.
+_STEP_KEYS: tuple[str, ...] = ("rdkit", "crest_confgen", "censo", "crest_entropy")
 # Keys that only affect performance, not results, and so never invalidate a stage.
 _PERFORMANCE_KEYS: frozenset[str] = frozenset(
     {"n_cores", "parallel", "T", "maxcores", "paths", "verbose", "json"},
@@ -78,6 +80,11 @@ def get_stage_settings(
 ) -> dict[str, Any]:
     """Return the settings that determine the results of a pipeline stage.
 
+    A stage's results depend on every enabled stage before it, so the settings
+    of those stages (and which stages are enabled) are included too.  A change
+    upstream therefore invalidates all later stages, even if a re-run was
+    interrupted before reaching them.
+
     Parameters
     ----------
     stage : PipelineStage
@@ -93,19 +100,29 @@ def get_stage_settings(
         JSON-serialisable settings, excluding performance-only keys such as
         core counts.
     """
-    match stage:
-        case PipelineStage.RDKIT:
-            settings = {"rdkit": config.get("rdkit"), "xtb": config.get("xtb")}
-        case PipelineStage.CREST_CONFGEN:
-            settings = {
-                "crest": config.get("crest", {}).get("confgen"),
-                "xtb": config.get("xtb") if config["steps"].get("xtb") else None,
-            }
-        case PipelineStage.CENSO:
-            settings = {"censo": config.get("censo")}
-        case _:
-            settings = {"crest": config.get("crest", {}).get("entropy")}
-    return {"smiles": smiles, **_strip_performance_keys(settings)}
+    steps = config.get("steps", {})
+    crest = config.get("crest", {})
+    own_settings: dict[PipelineStage, dict[str, Any]] = {
+        PipelineStage.RDKIT: {"rdkit": config.get("rdkit"), "xtb": config.get("xtb")},
+        PipelineStage.CREST_CONFGEN: {
+            "crest.confgen": crest.get("confgen"),
+            "xtb": config.get("xtb") if steps.get("xtb", True) else None,
+        },
+        PipelineStage.CENSO: {"censo": config.get("censo")},
+        PipelineStage.CREST_ENTROPY: {"crest.entropy": crest.get("entropy")},
+    }
+    # which stages up to and including this one are enabled (and, from CREST
+    # on, whether xTB re-ranking is used) determines this stage's input
+    step_flags = {key: steps.get(key, True) for key in _STEP_KEYS[:stage]}
+    if stage >= PipelineStage.CREST_CONFGEN:
+        step_flags["xtb"] = steps.get("xtb", True)
+    settings: dict[str, Any] = {"smiles": smiles, "steps": step_flags}
+    for upstream in PipelineStage:
+        if upstream > stage or upstream == PipelineStage.FINISH:
+            break
+        if upstream == stage or steps.get(_STEP_KEYS[upstream - 1], True):
+            settings[upstream.name.lower()] = own_settings[upstream]
+    return _strip_performance_keys(settings)
 
 
 def write_stage_settings(
@@ -224,11 +241,21 @@ def restore_results(
     ):
         return results, PipelineStage.RDKIT
 
+    # without xTB re-ranking, CREST writes no results; its ensemble is the checkpoint
+    crest_checkpoint = (
+        dir_path / "xtb" / "crest" / "results.json"
+        if steps.get("xtb", True)
+        else dir_path / "crest_confgen" / "crest_conformers.xyz"
+    )
     if steps.get("crest_confgen", True) and (
         _settings_changed(dir_path, PipelineStage.CREST_CONFGEN, config, smiles)
         or not _load_stage(
-            path=dir_path / "xtb" / "crest" / "results.json",
-            load_fn=lambda path: _parse_crest(results, path, temperature),
+            path=crest_checkpoint,
+            load_fn=lambda path: (
+                _parse_crest(results, path, temperature)
+                if steps.get("xtb", True)
+                else None
+            ),
             label="crest_confgen",
         )
     ):
@@ -248,28 +275,19 @@ def restore_results(
         _settings_changed(dir_path, PipelineStage.CREST_ENTROPY, config, smiles)
         or not _load_stage(
             path=dir_path / "crest_entropy" / "results.json",
-            load_fn=lambda path: _parse_crest_entropy(
-                results,
-                path,
-                temperature,
-                apply_correction=steps.get("censo", True),
+            load_fn=lambda path: results.update(
+                combine_entropy(
+                    results,
+                    json.loads(path.read_text()),
+                    temperature,
+                    censo_enabled=steps.get("censo", True),
+                ),
             ),
             label="crest_entropy",
         )
     ):
         return results, PipelineStage.CREST_ENTROPY
 
-    _load_stage(
-        path=dir_path / "results.json",
-        load_fn=lambda path: results.update(
-            {
-                section: params
-                for section, params in json.loads(path.read_text()).items()
-                if section not in results
-            },
-        ),
-        label="final",
-    )
     return results, PipelineStage.FINISH
 
 
@@ -439,37 +457,48 @@ def apply_entropy_correction(
     return {"censo_corrected": corrected}
 
 
-def _parse_crest_entropy(
-    results: dict,
-    path: Path,
+def combine_entropy(
+    results: Mapping[str, Mapping[str, float | None]],
+    crest_entropy_results: Mapping[str, float | None],
     temperature: float,
     *,
-    apply_correction: bool = True,
-) -> None:
-    """Load CREST entropy results and apply the entropy correction to *results*.
+    censo_enabled: bool = True,
+) -> dict[str, dict[str, float | None]]:
+    """Combine CREST entropy results with the CENSO results of a molecule.
+
+    If CENSO results with an enthalpy and entropy are available, the CREST
+    conformational entropy correction is applied to them (see
+    :func:`get_entropy_reference_section` and :func:`apply_entropy_correction`),
+    giving a ``"censo_corrected"`` section.  Otherwise (CENSO disabled, or no
+    mRRHO contribution evaluated) the raw entropies are returned as a
+    ``"crest_entropy"`` section.
 
     Parameters
     ----------
-    results : dict
-        Shared results dict; must already contain the CENSO results (see
-        :func:`get_entropy_reference_section`).
-        Updated in-place with a ``"censo_corrected"`` section.
-    path : Path
-        Path to the CREST entropy ``results.json`` file.
+    results : dict[str, dict[str, float | None]]
+        Results of the molecule, including any CENSO sections.
+    crest_entropy_results : dict[str, float | None]
+        Entropy parameters from the CREST entropy run.
     temperature : float
         Temperature in Kelvin used to recompute the corrected free energy.
-    apply_correction : bool
-        Whether to apply the correction to the CENSO results.  If ``False``
-        (CENSO disabled), the raw entropies are stored as ``"crest_entropy"``.
+    censo_enabled : bool
+        Whether the CENSO stage is enabled.
+
+    Returns
+    -------
+    dict[str, dict[str, float | None]]
+        Either ``{"censo_corrected": {...}}`` or ``{"crest_entropy": {...}}``.
     """
-    crest_entropy_results: dict[str, float | None] = json.loads(path.read_text())
-    if not apply_correction:
-        results.update({"crest_entropy": crest_entropy_results})
-        return
-    results.update(
-        apply_entropy_correction(
-            results[get_entropy_reference_section(results)],
-            crest_entropy_results,
-            temperature,
-        ),
-    )
+    if censo_enabled:
+        reference = results.get(get_entropy_reference_section(results), {})
+        if reference.get("H") is not None and reference.get("S") is not None:
+            return apply_entropy_correction(
+                dict(reference),
+                dict(crest_entropy_results),
+                temperature,
+            )
+        logger.warning(
+            "No CENSO enthalpy and entropy to apply the CREST entropy correction "
+            "to; storing the CREST entropies as crest_entropy",
+        )
+    return {"crest_entropy": dict(crest_entropy_results)}

@@ -27,8 +27,7 @@ import pandas as pd
 from larest.censo import check_censo_config, run_censo
 from larest.checkpoint import (
     PipelineStage,
-    apply_entropy_correction,
-    get_entropy_reference_section,
+    combine_entropy,
     restore_results,
     write_stage_settings,
 )
@@ -49,6 +48,7 @@ from larest.energy_matrix import (
 from larest.output import create_dir, mol_dir_name, remove_dir
 from larest.rdkit import run_rdkit
 from larest.report import MonomerRecord, collect_results, write_summary
+from larest.standard_state import apply_standard_state
 
 logger = logging.getLogger(__name__)
 
@@ -155,14 +155,16 @@ def run_pipeline(
     if steps["crest_entropy"] and stage <= PipelineStage.CREST_ENTROPY:
         crest_entropy_results = run_crest_entropy(dir_path, config)
         write_stage_settings(dir_path, PipelineStage.CREST_ENTROPY, config, mol.smiles)
-        if steps["censo"]:
-            results |= apply_entropy_correction(
-                results[get_entropy_reference_section(results)],
-                crest_entropy_results,
-                temperature,
-            )
-        else:
-            results |= {"crest_entropy": crest_entropy_results}
+        results |= combine_entropy(
+            results,
+            crest_entropy_results,
+            temperature,
+            censo_enabled=steps["censo"],
+        )
+
+    # stage results are stored as computed (1 atm thermostatistics); the
+    # standard-state conversion is applied to the reported results only
+    results = apply_standard_state(results, config)
 
     results_file = dir_path / "results.json"
     logger.debug(f"Writing final results to {results_file}")
@@ -651,6 +653,7 @@ def main(output_dir: Path, config: dict[str, Any]) -> None:
                     monomer_results,
                     output_dir,
                 ),
+                use_censo=config["steps"].get("censo", True),
             )
         except Exception:
             logger.exception(f"Failed to collect results for {monomer_smiles}")

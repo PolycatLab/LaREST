@@ -170,7 +170,8 @@ def _apply_solvent(
         if path == ("censo", "general"):
             # the solvent and gas-phase switch are set independently, so that
             # e.g. a user-set gas_phase = false still gets the solvent
-            if not user_keys & _CENSO_GAS_PHASE_KEYS:
+            # an explicit CENSO solvent means the user chose solvation for CENSO
+            if not user_keys & (_CENSO_GAS_PHASE_KEYS | {key}):
                 section["gas_phase"] = gas_phase
             if key not in user_keys and not gas_phase:
                 section[key] = solvent

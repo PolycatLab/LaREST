@@ -106,6 +106,10 @@ class TestRunCrestConfgenMocked:
 
 
 class TestRunCrestEntropyMocked:
+    @pytest.fixture(autouse=True)
+    def _enable_censo(self, minimal_config):
+        minimal_config["steps"]["censo"] = True
+
     def _setup_censo_checkpoint(self, dir_path):
         censo_dir = dir_path / "censo"
         censo_dir.mkdir(parents=True)
@@ -167,6 +171,22 @@ class TestRunCrestEntropyMocked:
         reference = tmp_path / "censo" / "censo_best.xyz"
         assert mock_run.call_args.args[0][1] == str(reference.absolute())
         assert "CONF2" in reference.read_text()
+
+    def test_ignores_censo_output_when_censo_disabled(self, tmp_path, minimal_config):
+        self._setup_censo_checkpoint(tmp_path)
+        crest_xyz = tmp_path / "crest_confgen" / "crest_best.xyz"
+        crest_xyz.parent.mkdir(parents=True)
+        crest_xyz.write_text("1\n\nO 0.0 0.0 0.0\n")
+        minimal_config["steps"]["censo"] = False
+        fake_results = {"S_conf": 51.7, "S_rrho": 23.8, "S_total": 75.5}
+
+        with (
+            patch("larest.crest.subprocess.run") as mock_run,
+            patch("larest.crest.parse_crest_entropy_output", return_value=fake_results),
+        ):
+            run_crest_entropy(tmp_path, minimal_config)
+
+        assert mock_run.call_args.args[0][1] == str(crest_xyz.absolute())
 
     def test_falls_back_to_crest_structure_without_censo(
         self,

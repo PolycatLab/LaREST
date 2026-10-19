@@ -97,6 +97,17 @@ output directory for each reaction setup.
 | `G` | Free energy: E + thermal (mRRHO) free energy correction |
 | `S` | Entropy: (H − G) / T |
 
+**Standard state.** The thermostatistical contributions (from xTB, also in
+CENSO) are those of an ideal gas at 1 atm, while implicit solvation free
+energies refer to 1 M in both phases. With implicit solvation, G is therefore
+converted to a 1 M standard state by adding RT ln(c°RT/p°) per molecule
+(7.9 kJ/mol at 298.15 K), and S by subtracting R ln(c°RT/p°) (26.6 J/mol/K), so
+that ΔG and ΔS are comparable with experimental values for 1 M. Gas-phase
+results stay at 1 atm. This is controlled by `[thermo].standard_state`
+(`"auto"`, `"1M"` or `"1atm"`). The conversion is applied to the reported
+results (`results.json`, summaries, energy matrices), not to the files of the
+individual stages.
+
 For the RDKit and CREST stages these come from xTB (`TOTAL ENERGY`,
 `TOTAL ENTHALPY`, `TOTAL FREE ENERGY`). For the CENSO stages, `E` is the DFT
 energy plus the solvation free energy ΔGsolv, `G` is CENSO's `Gtot`, and `H`
@@ -137,7 +148,8 @@ delta_param = (polymer_param - n * monomer_param - initiator_param) / n
 ```
 
 A final row (`polymer_length = inf`) gives each delta extrapolated to infinite
-chain length by linear regression against 1/n.
+chain length by linear regression against 1/n (empty if only one chain length
+was computed).
 
 ## Energy matrices
 

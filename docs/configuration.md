@@ -131,6 +131,10 @@ stages end up with different solvation. Note that xTB/CREST (ALPB) and CENSO
 (SMD by default) may name some solvents differently; override per stage if
 needed.
 
+`standard_state` sets the standard state of G and S: `"auto"` (default) uses
+1 M for calculations with implicit solvation and 1 atm in the gas phase;
+`"1M"` and `"1atm"` force either (see [Output](output.md#energies)).
+
 `temperature` is the single source of truth for every H/S/G calculation: it sets
 the temperature at which each tool evaluates the free energy **and** the `T` used
 to derive `S = (H − G) / T`. Keeping it in one place ensures these stay

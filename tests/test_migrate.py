@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from rdkit.Chem.rdmolfiles import MolFromSmiles, MolToMolBlock
+from rdkit.Chem.rdmolops import AddHs
 
 from larest.chem import build_polymer, get_isodesmic_initiator
 from larest.data import Initiator, Monomer, Polymer
@@ -23,16 +25,25 @@ def _config(monomers, reaction_type="RER", lengths=(2, 3), initiator=None):
     return {"reaction": reaction}
 
 
-def _make_legacy(output_dir, sub, name):
+def _make_legacy(output_dir, sub, name, smiles):
+    """Create a legacy molecule directory holding the RDKit conformers of *smiles*."""
     path = output_dir / sub / name
-    path.mkdir(parents=True)
+    (path / "rdkit").mkdir(parents=True)
     (path / "results.json").write_text("{}")
+    (path / "rdkit" / "conformers.sdf").write_text(
+        MolToMolBlock(AddHs(MolFromSmiles(smiles))) + "$$$$\n",
+    )
     return path
 
 
 def test_rer_plan(tmp_path):
-    old_mon = _make_legacy(tmp_path, "Monomer", slugify(GBL))
-    old_p2 = _make_legacy(tmp_path, "Polymer", f"{slugify(GBL)}_2")
+    old_mon = _make_legacy(tmp_path, "Monomer", slugify(GBL), GBL)
+    old_p2 = _make_legacy(
+        tmp_path,
+        "Polymer",
+        f"{slugify(GBL)}_2",
+        build_polymer(GBL, 2, "RER"),
+    )
     plan = plan_migration(_config([GBL]), tmp_path)
 
     p2 = build_polymer(GBL, 2, "RER")
@@ -46,8 +57,13 @@ def test_rer_plan(tmp_path):
 
 
 def test_ror_plan_with_initiator(tmp_path):
-    old_init = _make_legacy(tmp_path, "Initiator", slugify("CCO"))
-    old_p1 = _make_legacy(tmp_path, "Polymer", f"{slugify(GBL)}_1")
+    old_init = _make_legacy(tmp_path, "Initiator", slugify("CCO"), "CCO")
+    old_p1 = _make_legacy(
+        tmp_path,
+        "Polymer",
+        f"{slugify(GBL)}_1",
+        build_polymer(GBL, 1, "ROR", "CCO"),
+    )
     plan = plan_migration(
         _config([GBL], reaction_type="ROR", lengths=[1], initiator="CCO"),
         tmp_path,
@@ -62,7 +78,7 @@ def test_ror_auto_initiator_shared(tmp_path):
     # two lactones share the same isodesmic initiator (methyl acetate)
     init = get_isodesmic_initiator(GBL)
     assert init == get_isodesmic_initiator(BL)
-    old_init = _make_legacy(tmp_path, "Initiator", slugify(init))
+    old_init = _make_legacy(tmp_path, "Initiator", slugify(init), init)
     plan = plan_migration(
         _config([GBL, BL], reaction_type="ROR", lengths=[1], initiator="auto"),
         tmp_path,
@@ -75,9 +91,14 @@ def test_ror_auto_initiator_shared(tmp_path):
 
 def test_slug_collision_not_moved(tmp_path):
     assert slugify(BL) == slugify(ALKENE)
-    old_mon = _make_legacy(tmp_path, "Monomer", slugify(BL))
-    old_p2 = _make_legacy(tmp_path, "Polymer", f"{slugify(BL)}_2")
-    old_gbl = _make_legacy(tmp_path, "Monomer", slugify(GBL))
+    old_mon = _make_legacy(tmp_path, "Monomer", slugify(BL), BL)
+    old_p2 = _make_legacy(
+        tmp_path,
+        "Polymer",
+        f"{slugify(BL)}_2",
+        build_polymer(BL, 2, "RER"),
+    )
+    old_gbl = _make_legacy(tmp_path, "Monomer", slugify(GBL), GBL)
     plan = plan_migration(_config([BL, ALKENE, GBL], lengths=[2]), tmp_path)
 
     assert [m.old for m in plan.moves] == [old_gbl]
@@ -87,14 +108,14 @@ def test_slug_collision_not_moved(tmp_path):
 
 
 def test_duplicate_monomer_not_collision(tmp_path):
-    old_mon = _make_legacy(tmp_path, "Monomer", slugify(GBL))
+    old_mon = _make_legacy(tmp_path, "Monomer", slugify(GBL), GBL)
     plan = plan_migration(_config([GBL, GBL], lengths=[2]), tmp_path)
     assert [m.old for m in plan.moves] == [old_mon]
     assert plan.warnings == []
 
 
 def test_existing_target_not_overwritten(tmp_path):
-    _make_legacy(tmp_path, "Monomer", slugify(GBL))
+    _make_legacy(tmp_path, "Monomer", slugify(GBL), GBL)
     get_mol_dir(Monomer(GBL), tmp_path).mkdir(parents=True)
     plan = plan_migration(_config([GBL], lengths=[2]), tmp_path)
     assert plan.moves == []
@@ -123,7 +144,7 @@ def test_unknown_reaction_type(tmp_path):
 
 
 def test_apply_migration(tmp_path):
-    old = _make_legacy(tmp_path, "Monomer", slugify(GBL))
+    old = _make_legacy(tmp_path, "Monomer", slugify(GBL), GBL)
     plan = plan_migration(_config([GBL], lengths=[2]), tmp_path)
     apply_migration(plan)
     new = get_mol_dir(Monomer(GBL), tmp_path)
@@ -132,7 +153,7 @@ def test_apply_migration(tmp_path):
 
 
 def test_apply_migration_refuses_overwrite(tmp_path):
-    _make_legacy(tmp_path, "Monomer", slugify(GBL))
+    _make_legacy(tmp_path, "Monomer", slugify(GBL), GBL)
     plan = plan_migration(_config([GBL], lengths=[2]), tmp_path)
     plan.moves[0].new.mkdir(parents=True)
     with pytest.raises(FileExistsError):
@@ -149,7 +170,7 @@ def _write_config(tmp_path):
 
 def test_entry_point_dry_run(tmp_path, capsys):
     out = tmp_path / "out"
-    old = _make_legacy(out, "Monomer", slugify(GBL))
+    old = _make_legacy(out, "Monomer", slugify(GBL), GBL)
     entry_point([str(_write_config(tmp_path)), str(out)])
     assert old.exists()
     assert "Would move" in capsys.readouterr().out
@@ -157,8 +178,24 @@ def test_entry_point_dry_run(tmp_path, capsys):
 
 def test_entry_point_apply(tmp_path, capsys):
     out = tmp_path / "out"
-    old = _make_legacy(out, "Monomer", slugify(GBL))
+    old = _make_legacy(out, "Monomer", slugify(GBL), GBL)
     entry_point([str(_write_config(tmp_path)), str(out), "--apply"])
     assert not old.exists()
     assert get_mol_dir(Monomer(GBL), out.resolve()).is_dir()
     assert "Moved 1 directories" in capsys.readouterr().out
+
+
+def test_mismatched_polymer_not_moved(tmp_path):
+    """A legacy polymer directory holding a different molecule is not moved."""
+    _make_legacy(tmp_path, "Polymer", f"{slugify(GBL)}_2", build_polymer(GBL, 3, "RER"))
+    plan = plan_migration(_config([GBL]), tmp_path)
+    assert plan.moves == []
+    assert any("current version builds" in w for w in plan.warnings)
+
+
+def test_unverifiable_directory_not_moved(tmp_path):
+    path = tmp_path / "Monomer" / slugify(GBL)
+    path.mkdir(parents=True)
+    plan = plan_migration(_config([GBL]), tmp_path)
+    assert plan.moves == []
+    assert any("cannot verify" in w for w in plan.warnings)
