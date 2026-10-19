@@ -7,6 +7,9 @@ This module wraps two separate CREST execution modes:
   the CREST best structure.
 * :func:`run_crest_entropy` — entropy-mode run using the best CENSO conformer
   to obtain conformational entropy corrections (S_conf, S_rrho, S_total).
+
+:func:`get_best_structure` returns the lowest free energy structure from the
+most refined stage completed for a molecule.
 """
 
 from __future__ import annotations
@@ -17,8 +20,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from larest.censo import extract_best_conformer_xyz, parse_best_censo_conformers
-from larest.constants import CALMOL_TO_JMOL, CREST_ENTROPY_OUTPUT_PARAMS
+from larest.censo import (
+    extract_best_conformer_xyz,
+    get_best_censo_conformer,
+    get_last_censo_section,
+)
+from larest.constants import CALMOL_TO_JMOL, CENSO_PARTS, CREST_ENTROPY_OUTPUT_PARAMS
 from larest.output import create_dir
 from larest.rdkit import parse_best_rdkit_conformer
 from larest.setup import parse_command_args
@@ -112,17 +119,19 @@ def run_crest_entropy(
     dir_path: Path,
     config: dict[str, Any],
 ) -> dict[str, float | None]:
-    """Run CREST in entropy mode using the best CENSO conformer.
+    """Run CREST in entropy mode using the best available conformer.
 
-    Extracts the highest-ranked CENSO ``censo_refinement`` conformer to an XYZ
-    file, runs CREST entropy mode on it, parses the output, writes
-    ``results.json``, and returns the conformational entropy values.
+    The reference structure is the lowest free energy conformer of the last
+    completed stage (normally the CENSO refinement, see
+    :func:`get_best_structure`).  CREST entropy mode is run on it, the output
+    parsed, ``results.json`` written, and the conformational entropy values
+    returned.
 
     Parameters
     ----------
     dir_path : Path
-        Root molecule output directory.  Must contain ``censo/censo.txt`` and
-        ``censo/3_REFINEMENT.xyz`` (as produced by CENSO) from a completed CENSO stage.
+        Root molecule output directory, containing at least one completed
+        conformer stage.
     config : dict[str, Any]
         Full pipeline configuration dict.  Uses the ``[crest][entropy]``
         sub-section.
@@ -136,26 +145,14 @@ def run_crest_entropy(
     Raises
     ------
     ValueError
-        If the best CENSO conformer cannot be identified or extracted.
+        If no reference structure can be found.
     subprocess.CalledProcessError
         If the CREST process exits with a non-zero return code.
     """
-    censo_dir = dir_path / "censo"
-    best_censo_conformer_xyz_file = censo_dir / "censo_best.xyz"
-
-    try:
-        best_censo_conformer = parse_best_censo_conformers(
-            censo_output_file=censo_dir / "censo.txt",
-        )["censo_refinement"]
-        extract_best_conformer_xyz(
-            censo_conformers_xyz_file=censo_dir / "3_REFINEMENT.xyz",
-            best_conformer_id=best_censo_conformer,
-            output_xyz_file=best_censo_conformer_xyz_file,
-        )
-    except Exception as err:
-        raise ValueError(
-            "Failed to extract best CENSO conformer for crest_entropy",
-        ) from err
+    reference_xyz_file = get_best_structure(dir_path)
+    if reference_xyz_file is None:
+        raise ValueError("Failed to find a reference structure for crest_entropy")
+    logger.debug(f"Using {reference_xyz_file} as the crest_entropy reference")
 
     crest_dir = dir_path / "crest_entropy"
     create_dir(crest_dir)
@@ -163,7 +160,7 @@ def run_crest_entropy(
     crest_output_file = crest_dir / "crest.txt"
     crest_args: list[str] = [
         "crest",
-        str(best_censo_conformer_xyz_file.absolute()),
+        str(reference_xyz_file.absolute()),
         "--entropy",
         *parse_command_args(sub_config=["crest", "entropy"], config=config),
     ]
@@ -248,3 +245,63 @@ def parse_crest_entropy_output(
     logger.debug(f"S_total {crest_output['S_total']}")
 
     return crest_output
+
+
+def get_best_structure(dir_path: Path) -> Path | None:
+    """Write and return the lowest free energy structure of a molecule.
+
+    Uses the most refined stage available: the lowest free energy conformer
+    of the last completed CENSO sub-stage, then the xTB-reoptimised CREST best
+    conformer, then the best RDKit/xTB conformer.  The CENSO structure is
+    extracted to ``censo/censo_best.xyz``.
+
+    Parameters
+    ----------
+    dir_path : Path
+        Root molecule output directory.
+
+    Returns
+    -------
+    Path | None
+        Path to the XYZ file of the structure, or ``None`` if no stage has
+        produced one.
+    """
+    censo_dir = dir_path / "censo"
+    section = get_last_censo_section(censo_dir)
+    if section is not None:
+        best_censo_xyz_file = censo_dir / "censo_best.xyz"
+        try:
+            extract_best_conformer_xyz(
+                censo_conformers_xyz_file=censo_dir / f"{CENSO_PARTS[section]}.xyz",
+                best_conformer_id=get_best_censo_conformer(censo_dir, section),
+                output_xyz_file=best_censo_xyz_file,
+            )
+        except Exception:
+            logger.exception(f"Failed to extract best CENSO conformer in {censo_dir}")
+        else:
+            return best_censo_xyz_file
+
+    for crest_xyz_file in (
+        dir_path / "xtb" / "crest" / "crest_best.xtbopt.xyz",
+        dir_path / "crest_confgen" / "crest_best.xyz",
+    ):
+        if crest_xyz_file.exists():
+            return crest_xyz_file
+
+    rdkit_results_file = dir_path / "xtb" / "rdkit" / "results.csv"
+    if rdkit_results_file.exists():
+        try:
+            conformer_id = int(
+                parse_best_rdkit_conformer(rdkit_results_file)["conformer_id"],  # type: ignore[arg-type]
+            )
+        except Exception:
+            logger.exception(f"Failed to read best RDKit conformer in {dir_path}")
+            return None
+        rdkit_xyz_file = (
+            rdkit_results_file.parent
+            / f"conformer_{conformer_id}"
+            / f"conformer_{conformer_id}.xtbopt.xyz"
+        )
+        if rdkit_xyz_file.exists():
+            return rdkit_xyz_file
+    return None

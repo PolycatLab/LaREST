@@ -1,10 +1,12 @@
 """File-system utilities for directory management and SMILES-to-path conversion.
 
-Provides helpers for creating and removing output directories, and a
+Provides helpers for creating and removing output directories, a
 :func:`slugify` function that converts arbitrary SMILES strings into safe,
-filesystem-compatible directory names.
+filesystem-compatible names, and :func:`mol_dir_name`, which adds a hash of the
+SMILES so that distinct molecules never share an output directory.
 """
 
+import hashlib
 import logging
 import re
 import shutil
@@ -72,3 +74,42 @@ def slugify(smiles: str) -> str:
     smiles = re.sub(r"[\(\)]", "-", smiles)
     smiles = re.sub(r"[^\w\s@-]", "", smiles)
     return re.sub(r"[-\s]+", "-", smiles).strip("-_")
+
+
+_MAX_SLUG_LENGTH = 80
+
+
+def mol_dir_name(
+    smiles: str,
+    suffix: str | None = None,
+    slug_smiles: str | None = None,
+) -> str:
+    """Get a unique, filesystem-safe directory name for a molecule.
+
+    :func:`slugify` drops characters such as ``=``, ``#``, ``/`` and ``\\``, so
+    different molecules (e.g. an alkene and the corresponding alkane) can have
+    the same slug.  A short hash of the full SMILES string is therefore
+    appended to keep directory names unique.
+
+    Parameters
+    ----------
+    smiles : str
+        SMILES string of the molecule (used for the hash).
+    suffix : str | None
+        Optional text inserted between the slug and the hash (e.g. the
+        polymer length).
+    slug_smiles : str | None
+        SMILES string used for the readable slug, if different from *smiles*
+        (e.g. the monomer SMILES for a polymer directory).
+
+    Returns
+    -------
+    str
+        Directory name of the form ``<slug>[_<suffix>]_<hash>``.
+    """
+    digest = hashlib.sha1(smiles.encode("utf-8"), usedforsecurity=False).hexdigest()
+    parts = [slugify(slug_smiles or smiles)[:_MAX_SLUG_LENGTH]]
+    if suffix is not None:
+        parts.append(suffix)
+    parts.append(digest[:8])
+    return "_".join(parts)

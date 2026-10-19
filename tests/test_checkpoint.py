@@ -7,8 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from larest.checkpoint import PipelineStage, apply_entropy_correction, restore_results
-from larest.constants import PIPELINE_SECTIONS, THERMODYNAMIC_PARAMS
+from larest.checkpoint import (
+    PipelineStage,
+    apply_entropy_correction,
+    get_entropy_reference_section,
+    restore_results,
+    write_stage_settings,
+)
+from larest.constants import HARTTREE_TO_JMOL, PIPELINE_SECTIONS, THERMODYNAMIC_PARAMS
 
 # ---------------------------------------------------------------------------
 # PipelineStage
@@ -172,13 +178,14 @@ def _make_censo_checkpoint(dir_path: Path) -> None:
     censo_dir = dir_path / "censo"
     censo_dir.mkdir(parents=True)
     sections_data = {
-        section: {"H": -100000.0, "S": -50.0, "G": -115000.0}
+        f"{section}{suffix}": {"E": -95000.0, "H": -100000.0, "S": 50.0, "G": -115000.0}
         for section in [
             "censo_prescreening",
             "censo_screening",
             "censo_optimization",
             "censo_refinement",
         ]
+        for suffix in ("", "_min")
     }
     (censo_dir / "results.json").write_text(json.dumps(sections_data))
 
@@ -276,3 +283,167 @@ class TestRestoreResults:
         steps = {"crest_entropy": False}
         _, stage = restore_results(tmp_path, steps=steps)
         assert stage == PipelineStage.FINISH
+
+
+# ---------------------------------------------------------------------------
+# Settings stamps and legacy results
+# ---------------------------------------------------------------------------
+
+
+class TestStageSettings:
+    def _config(self):
+        return {
+            "steps": {"xtb": True},
+            "rdkit": {"n_conformers": 10, "n_cores": 4},
+            "xtb": {"gfn": 2, "alpb": "toluene", "parallel": 4},
+            "crest": {"confgen": {"ewin": 6.0, "T": 4}, "entropy": {"T": 4}},
+            "censo": {
+                "cli": {"maxcores": 4, "refinement": True},
+                "refinement": {"func": "wb97x-v"},
+            },
+        }
+
+    def test_unchanged_settings_restore(self, tmp_path):
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        write_stage_settings(tmp_path, PipelineStage.RDKIT, config, "C1CC(=O)O1")
+        _, stage = restore_results(
+            tmp_path,
+            config=config,
+            smiles="C1CC(=O)O1",
+        )
+        assert stage == PipelineStage.CREST_CONFGEN
+
+    def test_changed_settings_rerun(self, tmp_path, caplog):
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        write_stage_settings(tmp_path, PipelineStage.RDKIT, config, "C1CC(=O)O1")
+        config["xtb"]["alpb"] = False
+        _, stage = restore_results(tmp_path, config=config, smiles="C1CC(=O)O1")
+        assert stage == PipelineStage.RDKIT
+        assert "have changed" in caplog.text
+
+    def test_core_counts_do_not_trigger_rerun(self, tmp_path):
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        write_stage_settings(tmp_path, PipelineStage.RDKIT, config, "C1CC(=O)O1")
+        config["xtb"]["parallel"] = 64
+        config["rdkit"]["n_cores"] = 64
+        _, stage = restore_results(tmp_path, config=config, smiles="C1CC(=O)O1")
+        assert stage == PipelineStage.CREST_CONFGEN
+
+    def test_different_molecule_reruns(self, tmp_path):
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        write_stage_settings(tmp_path, PipelineStage.RDKIT, config, "C1CC(=O)O1")
+        _, stage = restore_results(tmp_path, config=config, smiles="C1CCC(=O)O1")
+        assert stage == PipelineStage.RDKIT
+
+    def test_censo_settings_change_reruns_censo(self, tmp_path):
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        _make_censo_checkpoint(tmp_path)
+        for stage in (
+            PipelineStage.RDKIT,
+            PipelineStage.CREST_CONFGEN,
+            PipelineStage.CENSO,
+        ):
+            write_stage_settings(tmp_path, stage, config, "C")
+        config["censo"]["refinement"]["func"] = "b3lyp-d3"
+        _, stage = restore_results(tmp_path, config=config, smiles="C")
+        assert stage == PipelineStage.CENSO
+
+    def test_legacy_stage_without_stamp_is_accepted_and_stamped(self, tmp_path):
+        config = self._config()
+        _make_rdkit_checkpoint(tmp_path)
+        (tmp_path / "rdkit").mkdir()
+        _, stage = restore_results(tmp_path, config=config, smiles="C")
+        assert stage == PipelineStage.CREST_CONFGEN
+        assert (tmp_path / "rdkit" / "larest_settings.json").exists()
+
+
+class TestLegacyResults:
+    def test_rdkit_energy_recovered_from_xtb_output(self, tmp_path):
+        _make_rdkit_checkpoint(tmp_path)
+        conf_dir = tmp_path / "xtb" / "rdkit" / "conformer_0"
+        conf_dir.mkdir()
+        (conf_dir / "conformer_0.txt").write_text(
+            "| TOTAL ENERGY  -0.5 Eh |\n",
+        )
+        results, _ = restore_results(tmp_path)
+        assert results["rdkit"]["E"] == pytest.approx(-0.5 * HARTTREE_TO_JMOL)
+
+    def test_crest_energy_recovered_from_xtb_output(self, tmp_path):
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        (tmp_path / "xtb" / "crest" / "xtb.txt").write_text(
+            "| TOTAL ENERGY  -0.25 Eh |\n",
+        )
+        results, _ = restore_results(tmp_path)
+        assert results["crest"]["E"] == pytest.approx(-0.25 * HARTTREE_TO_JMOL)
+
+    def test_censo_rederived_from_raw_output(self, tmp_path):
+        """Stored CENSO results.json (old format: H = E) is ignored if raw output exists."""
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        _make_censo_checkpoint(tmp_path)
+        censo_dir = tmp_path / "censo"
+        (censo_dir / "3_REFINEMENT.json").write_text(
+            json.dumps(
+                {
+                    "data": {
+                        "CONF1": {
+                            "energy": -1.0,
+                            "gsolv": 0.0,
+                            "grrho": 0.04,
+                            "gtot": -0.96,
+                        },
+                    },
+                },
+            ),
+        )
+        rrho = censo_dir / "3_REFINEMENT" / "CONF1" / "xtb_rrho" / "xtb_rrho.out"
+        rrho.parent.mkdir(parents=True)
+        rrho.write_text("| TOTAL ENERGY -5.0 Eh |\n| TOTAL ENTHALPY -4.93 Eh |\n")
+        results, _ = restore_results(tmp_path)
+        assert results["censo_refinement_min"]["H"] == pytest.approx(
+            -0.93 * HARTTREE_TO_JMOL,
+        )
+        entropy = results["censo_refinement_min"]["S"]
+        assert entropy is not None
+        assert entropy > 0
+        assert results["censo_screening"]["G"] is None
+
+    def test_entropy_correction_uses_lowest_conformer(self, tmp_path):
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        _make_censo_checkpoint(tmp_path)
+        _make_crest_entropy_checkpoint(tmp_path)
+        results, stage = restore_results(tmp_path)
+        assert stage == PipelineStage.FINISH
+        assert results["censo_corrected"]["S"] == pytest.approx(50.0 + 15.0)
+
+    def test_entropy_without_censo_stored_raw(self, tmp_path):
+        _make_rdkit_checkpoint(tmp_path)
+        _make_crest_checkpoint(tmp_path)
+        _make_crest_entropy_checkpoint(tmp_path)
+        results, stage = restore_results(tmp_path, steps={"censo": False})
+        assert stage == PipelineStage.FINISH
+        assert results["crest_entropy"]["S_total"] == pytest.approx(15.0)
+
+
+class TestEntropyReferenceSection:
+    def test_refinement_preferred(self):
+        results = {
+            "censo_optimization_min": {"H": -1.0, "S": 1.0},
+            "censo_refinement_min": {"H": -2.0, "S": 2.0},
+        }
+        assert get_entropy_reference_section(results) == "censo_refinement_min"
+
+    def test_falls_back_to_last_completed_stage(self):
+        results = {
+            "censo_optimization_min": {"H": -1.0, "S": 1.0},
+            "censo_refinement_min": {"H": None, "S": None},
+        }
+        assert get_entropy_reference_section(results) == "censo_optimization_min"

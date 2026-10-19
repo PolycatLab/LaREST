@@ -2,98 +2,176 @@
 
 from __future__ import annotations
 
+import json
+import math
+
 import pytest
 
 from larest.censo import (
     build_rdkit_ensemble_xyz,
+    check_censo_config,
     create_censorc,
     extract_best_conformer_xyz,
-    parse_best_censo_conformers,
-    parse_censo_output,
+    get_best_censo_conformer,
+    get_last_censo_section,
+    parse_censo_part,
+    parse_censo_results,
 )
-from larest.constants import CENSO_SECTIONS, HARTTREE_TO_JMOL
+from larest.constants import CENSO_SECTIONS, GAS_CONSTANT, HARTTREE_TO_JMOL
 
 TEMPERATURE = 298.15
 
-# Expected values from tests/data/censo_output.txt
-_SECTION_HARTREES = [
-    (-0.12345678, -0.12345000),
-    (-0.23456789, -0.23456000),
-    (-0.34567890, -0.34567000),
-    (-0.45678901, -0.45678000),
-]
+
+def _write_xtb_rrho(path, energy, enthalpy):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "          | TOTAL ENERGY            "
+        f"{energy:.12f} Eh   |\n"
+        "          | TOTAL ENTHALPY          "
+        f"{enthalpy:.12f} Eh   |\n"
+        "          | TOTAL FREE ENERGY       -16.0 Eh   |\n",
+    )
 
 
-class TestParseCensoOutput:
-    def test_parses_all_sections(self, censo_output_file):
-        result = parse_censo_output(censo_output_file, TEMPERATURE)
-        assert set(result.keys()) == set(CENSO_SECTIONS)
+def _write_censo_part(censo_dir, part, conformers, *, rrho=True):
+    """Write a CENSO <part>.json and matching xtb_rrho outputs.
 
-    def test_parses_enthalpy(self, censo_output_file):
-        result = parse_censo_output(censo_output_file, TEMPERATURE)
-        for section, (h_ha, _) in zip(CENSO_SECTIONS, _SECTION_HARTREES, strict=False):
-            assert result[section]["H"] == pytest.approx(
-                h_ha * HARTTREE_TO_JMOL,
-                rel=1e-6,
+    conformers maps conformer ID to (energy, gsolv, grrho, h_rrho) in Hartree.
+    """
+    censo_dir.mkdir(parents=True, exist_ok=True)
+    data = {}
+    for conf, (energy, gsolv, grrho, h_rrho) in conformers.items():
+        data[conf] = {
+            "energy": energy,
+            "gsolv": gsolv,
+            "grrho": grrho,
+            "gtot": energy + gsolv + grrho,
+        }
+        if rrho:
+            _write_xtb_rrho(
+                censo_dir / part / conf / "xtb_rrho" / "xtb_rrho.out",
+                -16.5,
+                -16.5 + h_rrho,
             )
-
-    def test_parses_free_energy(self, censo_output_file):
-        result = parse_censo_output(censo_output_file, TEMPERATURE)
-        for section, (_, g_ha) in zip(CENSO_SECTIONS, _SECTION_HARTREES, strict=False):
-            assert result[section]["G"] == pytest.approx(
-                g_ha * HARTTREE_TO_JMOL,
-                rel=1e-6,
-            )
-
-    def test_computes_entropy(self, censo_output_file):
-        result = parse_censo_output(censo_output_file, TEMPERATURE)
-        for section, (h_ha, g_ha) in zip(
-            CENSO_SECTIONS,
-            _SECTION_HARTREES,
-            strict=False,
-        ):
-            expected_s = (h_ha - g_ha) * HARTTREE_TO_JMOL / TEMPERATURE
-            assert result[section]["S"] == pytest.approx(expected_s, rel=1e-5)
-
-    def test_missing_data_returns_none(self, tmp_path):
-        empty = tmp_path / "empty.txt"
-        empty.write_text("nothing here\n")
-        result = parse_censo_output(empty, TEMPERATURE)
-        for section in CENSO_SECTIONS:
-            assert result[section]["H"] is None
-            assert result[section]["G"] is None
+    (censo_dir / f"{part}.json").write_text(json.dumps({"data": data}))
 
 
-class TestParseBestCensoConformers:
-    def test_parses_all_sections(self, censo_output_file):
-        result = parse_best_censo_conformers(censo_output_file)
-        assert set(result.keys()) == set(CENSO_SECTIONS)
+_REFINEMENT = {
+    # energy, gsolv, grrho, h_rrho (Hartree)
+    "CONF1": (-267.1776, -0.0098, 0.0394, 0.0717),
+    "CONF2": (-267.1760, -0.0100, 0.0390, 0.0712),
+}
 
-    def test_correct_conformer_ids(self, censo_output_file):
-        result = parse_best_censo_conformers(censo_output_file)
-        assert result["censo_prescreening"] == "CONF1"
-        assert result["censo_screening"] == "CONF2"
-        assert result["censo_optimization"] == "CONF3"
-        assert result["censo_refinement"] == "CONF5"
 
-    def test_missing_data_defaults_to_conf1(self, tmp_path):
-        empty = tmp_path / "empty.txt"
-        empty.write_text("nothing here\n")
-        result = parse_best_censo_conformers(empty)
-        for section in CENSO_SECTIONS:
-            assert result[section] == "CONF1"
-
-    def test_missing_sections_logs_warning(self, tmp_path, caplog):
-        import logging
-
-        # File contains fewer "Highest ranked conformer" lines than CENSO_SECTIONS
-        partial = tmp_path / "partial.txt"
-        partial.write_text(
-            "Highest ranked conformer CONF1\nHighest ranked conformer CONF2\n",
+class TestParseCensoPart:
+    def test_energies(self, tmp_path):
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        conformers = parse_censo_part(tmp_path, "censo_refinement")
+        energy, gsolv, grrho, h_rrho = _REFINEMENT["CONF1"]
+        conf1 = next(c for c in conformers if c["conformer"] == "CONF1")
+        assert conf1["E"] == pytest.approx((energy + gsolv) * HARTTREE_TO_JMOL)
+        assert conf1["H"] == pytest.approx(
+            (energy + gsolv + h_rrho) * HARTTREE_TO_JMOL,
         )
-        with caplog.at_level(logging.WARNING):
-            parse_best_censo_conformers(partial)
-        assert "Failed to extract best conformers" in caplog.text
+        assert conf1["G"] == pytest.approx(
+            (energy + gsolv + grrho) * HARTTREE_TO_JMOL,
+        )
+
+    def test_enthalpy_above_free_energy(self, tmp_path):
+        """H > G, i.e. a positive entropy (the old parser gave H < G)."""
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        for conf in parse_censo_part(tmp_path, "censo_refinement"):
+            assert conf["H"] > conf["G"]
+
+    def test_sorted_by_free_energy(self, tmp_path):
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        conformers = parse_censo_part(tmp_path, "censo_refinement")
+        assert [c["conformer"] for c in conformers] == ["CONF1", "CONF2"]
+
+    def test_no_rrho_gives_no_h_or_g(self, tmp_path):
+        _write_censo_part(
+            tmp_path,
+            "0_PRESCREENING",
+            {"CONF1": (-266.6, -0.01, 0.0, 0.0)},
+            rrho=False,
+        )
+        (conf,) = parse_censo_part(tmp_path, "censo_prescreening")
+        assert conf["E"] == pytest.approx(-266.61 * HARTTREE_TO_JMOL)
+        assert conf["H"] is None
+        assert conf["G"] is None
+
+    def test_missing_rrho_output_gives_no_h(self, tmp_path):
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT, rrho=False)
+        conformers = parse_censo_part(tmp_path, "censo_refinement")
+        assert all(c["H"] is None for c in conformers)
+        assert all(c["G"] is not None for c in conformers)
+
+    def test_missing_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            parse_censo_part(tmp_path, "censo_refinement")
+
+
+class TestParseCensoResults:
+    def test_sections(self, tmp_path):
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        result = parse_censo_results(tmp_path, TEMPERATURE)
+        assert set(result) == {
+            *CENSO_SECTIONS,
+            *(f"{section}_min" for section in CENSO_SECTIONS),
+        }
+        assert result["censo_screening"]["G"] is None
+
+    def test_minimum_is_lowest_free_energy_conformer(self, tmp_path):
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        result = parse_censo_results(tmp_path, TEMPERATURE)
+        conf1 = parse_censo_part(tmp_path, "censo_refinement")[0]
+        for param in ("E", "H", "G"):
+            assert result["censo_refinement_min"][param] == pytest.approx(conf1[param])
+
+    def test_boltzmann_average(self, tmp_path):
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        result = parse_censo_results(tmp_path, TEMPERATURE)
+        conformers = parse_censo_part(tmp_path, "censo_refinement")
+        rt = GAS_CONSTANT * TEMPERATURE
+        weights = [math.exp(-(c["G"] - conformers[0]["G"]) / rt) for c in conformers]
+        for param in ("E", "H", "G"):
+            expected = sum(
+                w * c[param] for w, c in zip(weights, conformers, strict=True)
+            ) / sum(weights)
+            assert result["censo_refinement"][param] == pytest.approx(expected)
+
+    def test_entropy_is_positive_and_consistent(self, tmp_path):
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        result = parse_censo_results(tmp_path, TEMPERATURE)
+        for section in ("censo_refinement", "censo_refinement_min"):
+            h, s, g = (result[section][p] for p in ("H", "S", "G"))
+            assert h is not None
+            assert s is not None
+            assert g is not None
+            assert s > 0
+            assert s == pytest.approx((h - g) / TEMPERATURE)
+
+    def test_empty_dir_returns_none(self, tmp_path):
+        result = parse_censo_results(tmp_path, TEMPERATURE)
+        for params in result.values():
+            assert all(value is None for value in params.values())
+
+
+class TestBestCensoConformer:
+    def test_best_conformer(self, tmp_path):
+        _write_censo_part(
+            tmp_path,
+            "3_REFINEMENT",
+            {"CONF1": (-1.0, 0.0, 0.01, 0.02), "CONF5": (-1.1, 0.0, 0.01, 0.02)},
+        )
+        assert get_best_censo_conformer(tmp_path, "censo_refinement") == "CONF5"
+
+    def test_last_section(self, tmp_path):
+        assert get_last_censo_section(tmp_path) is None
+        _write_censo_part(tmp_path, "1_SCREENING", _REFINEMENT)
+        assert get_last_censo_section(tmp_path) == "censo_screening"
+        _write_censo_part(tmp_path, "3_REFINEMENT", _REFINEMENT)
+        assert get_last_censo_section(tmp_path) == "censo_refinement"
 
 
 class TestExtractBestConformerXyz:
@@ -208,3 +286,40 @@ class TestBuildRdkitEnsembleXyz:
         out = tmp_path / "ensemble.xyz"
         with pytest.raises(RuntimeError, match="no xTB-optimised"):
             build_rdkit_ensemble_xyz(dir_path=tmp_path, output_xyz_file=out)
+
+
+class TestRunCensoMissingOutput:
+    def test_raises_when_censo_writes_no_results(self, tmp_path, minimal_config):
+        from unittest.mock import patch
+
+        from larest.censo import run_censo
+
+        crest_dir = tmp_path / "mol" / "crest_confgen"
+        crest_dir.mkdir(parents=True)
+        (crest_dir / "crest_conformers.xyz").write_text("1\nCONF1\nO 0 0 0\n")
+        (tmp_path / "temp").mkdir()
+        with (
+            patch("larest.censo.subprocess.run"),
+            pytest.raises(RuntimeError, match="wrote no"),
+        ):
+            run_censo(tmp_path / "mol", tmp_path, minimal_config)
+
+
+class TestCheckCensoConfig:
+    def test_recognised_keys_pass(self, minimal_config):
+        pytest.importorskip("censo")
+        minimal_config["censo"]["general"]["gas_phase"] = True
+        minimal_config["censo"]["refinement"] = {"func": "b3lyp-d3"}
+        minimal_config["censo"]["prescreening"] = {}
+        minimal_config["censo"]["screening"] = {}
+        minimal_config["censo"]["optimization"] = {}
+        assert check_censo_config(minimal_config) == []
+
+    def test_unknown_keys_reported(self, minimal_config, caplog):
+        pytest.importorskip("censo")
+        minimal_config["censo"]["general"]["bhess"] = True
+        minimal_config["censo"]["bogus"] = {"x": 1}
+        unknown = check_censo_config(minimal_config)
+        assert "[general] bhess" in unknown
+        assert "[bogus]" in unknown
+        assert "will be ignored" in caplog.text

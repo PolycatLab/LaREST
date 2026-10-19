@@ -2,7 +2,8 @@
 
 :func:`get_config` deep-merges the user's ``config.toml`` on top of the
 built-in defaults in ``defaults.toml``, then propagates the top-level
-``[parallelisation] n_cores`` to each stage unless overridden.
+``[parallelisation] n_cores``, ``[thermo] temperature`` and ``[thermo] solvent``
+to each stage unless overridden.
 
 :func:`get_logger` applies the ``[logging]`` section of that dict via
 :func:`logging.config.dictConfig`, substituting the resolved path for the
@@ -44,6 +45,21 @@ _TEMPERATURE_KEYS: dict[tuple[str, ...], str] = {
     ("crest", "confgen"): "temp",
     ("crest", "entropy"): "temp",
 }
+
+# Maps config path to the solvent key used by each stage. If the user does not
+# set a solvent key for a stage, it is filled from [thermo].solvent.
+_SOLVENT_KEYS: dict[tuple[str, ...], str] = {
+    ("xtb",): "alpb",
+    ("crest", "confgen"): "alpb",
+    ("crest", "entropy"): "alpb",
+    ("censo", "general"): "solvent",
+}
+# Keys that, if set by the user in an xTB/CREST stage, mean they have chosen the
+# solvation for that stage themselves.
+_USER_SOLVATION_KEYS: frozenset[str] = frozenset({"alpb", "gbsa", "cpcmx"})
+_CENSO_GAS_PHASE_KEYS: frozenset[str] = frozenset({"gas_phase", "gas-phase"})
+# [thermo].solvent values that select gas-phase calculations.
+GAS_PHASE_VALUES: frozenset[str] = frozenset({"", "gas", "none", "vacuum"})
 
 # Keys that are used internally by LaREST and must never be emitted as CLI flags
 # by parse_command_args (e.g. the code-only thermostatistical temperature, which
@@ -118,6 +134,66 @@ def _apply_temperature(
     return _propagate_default(config, user_config, _TEMPERATURE_KEYS, temperature)
 
 
+def _get_section(config: dict[str, Any], path: tuple[str, ...]) -> object:
+    section: Any = config
+    for p in path:
+        if not isinstance(section, dict) or p not in section:
+            return None
+        section = section[p]
+    return section
+
+
+def _apply_solvent(
+    config: dict[str, Any],
+    user_config: dict[str, Any],
+) -> dict[str, Any]:
+    """Propagate ``[thermo].solvent`` to the solvation settings of every stage.
+
+    A solvent name sets ``--alpb <solvent>`` for xTB and CREST and the CENSO
+    ``solvent``; a gas-phase value (``"gas"``, ``"none"``, ``"vacuum"``, ``""``
+    or ``false``) disables implicit solvation in xTB and CREST and sets CENSO's
+    ``gas_phase = true``.  Stages for which the user explicitly set a
+    solvation key are left untouched, and a warning is logged if the stages
+    end up with inconsistent solvation.
+    """
+    solvent = config.get("thermo", {}).get("solvent")
+    if solvent is None:
+        return config
+    gas_phase = solvent is False or str(solvent).strip().lower() in GAS_PHASE_VALUES
+
+    for path, key in _SOLVENT_KEYS.items():
+        user_section = _get_section(user_config, path)
+        user_keys = set(user_section) if isinstance(user_section, dict) else set()
+        section = config
+        for p in path:
+            section = section.setdefault(p, {})
+        if path == ("censo", "general"):
+            # the solvent and gas-phase switch are set independently, so that
+            # e.g. a user-set gas_phase = false still gets the solvent
+            if not user_keys & _CENSO_GAS_PHASE_KEYS:
+                section["gas_phase"] = gas_phase
+            if key not in user_keys and not gas_phase:
+                section[key] = solvent
+        elif not user_keys & _USER_SOLVATION_KEYS:
+            section[key] = False if gas_phase else solvent
+
+    solvation = {
+        "xtb": config.get("xtb", {}).get("alpb") or None,
+        "crest.confgen": config.get("crest", {}).get("confgen", {}).get("alpb") or None,
+        "crest.entropy": config.get("crest", {}).get("entropy", {}).get("alpb") or None,
+        "censo": None
+        if config.get("censo", {}).get("general", {}).get("gas_phase")
+        or config.get("censo", {}).get("general", {}).get("gas-phase")
+        else config.get("censo", {}).get("general", {}).get("solvent"),
+    }
+    if len(set(solvation.values())) > 1:
+        logger.warning(
+            "Implicit solvation differs between stages "
+            f"({', '.join(f'{k}: {v or "gas phase"}' for k, v in solvation.items())})",
+        )
+    return config
+
+
 def get_config(config_file: Path) -> dict[str, Any]:
     """Load and merge the pipeline configuration.
 
@@ -153,7 +229,47 @@ def get_config(config_file: Path) -> dict[str, Any]:
 
     config = _deep_merge(defaults, user_config)
     config = _apply_parallelisation(config, user_config)
-    return _apply_temperature(config, user_config)
+    config = _apply_temperature(config, user_config)
+    config = _apply_solvent(config, user_config)
+    return normalise_monomers(config)
+
+
+def normalise_monomers(config: dict[str, Any]) -> dict[str, Any]:
+    """Normalise ``[reaction].monomers`` entries to dicts.
+
+    Each monomer may be given either as a SMILES string or as a table with a
+    ``smiles`` key and an optional ``group`` key selecting the functional group
+    to open (overriding the priority ranking), e.g.
+    ``{ smiles = "O=C1CCC(=O)N1", group = "Lm" }``.
+
+    Parameters
+    ----------
+    config : dict[str, Any]
+        Full pipeline configuration dict.
+
+    Returns
+    -------
+    dict[str, Any]
+        The configuration, with ``config["reaction"]["monomers"]`` as a list of
+        ``{"smiles": str, "group": str | None}`` dicts.
+
+    Raises
+    ------
+    ValueError
+        If a monomer entry is neither a string nor a table with ``smiles``.
+    """
+    monomers: list[dict[str, Any]] = []
+    for monomer in config.get("reaction", {}).get("monomers", []):
+        if isinstance(monomer, str):
+            monomers.append({"smiles": monomer, "group": None})
+        elif isinstance(monomer, dict) and "smiles" in monomer:
+            monomers.append(
+                {"smiles": monomer["smiles"], "group": monomer.get("group")},
+            )
+        else:
+            raise ValueError(f"Invalid monomer entry in config: {monomer}")
+    config.setdefault("reaction", {})["monomers"] = monomers
+    return config
 
 
 def get_logger(

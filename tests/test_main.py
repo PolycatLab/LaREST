@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import textwrap
 from unittest.mock import MagicMock, patch
@@ -9,8 +10,15 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from larest.data import MolResults, Monomer, Polymer
-from larest.main import compile_results, format_results_table, run_pipeline
+from larest.data import Initiator, MolResults, Monomer, Polymer
+from larest.main import (
+    compile_results,
+    format_results_table,
+    get_mol_dir,
+    main,
+    run_pipeline,
+)
+from larest.output import create_dir
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -201,9 +209,7 @@ class TestCompileResults:
             reaction_type="RER",
         )
 
-        from larest.output import slugify
-
-        summary_dir = tmp_path / "Monomer" / slugify(_MONOMER_SMILES) / "summary"
+        summary_dir = get_mol_dir(Monomer(_MONOMER_SMILES), tmp_path) / "summary"
         assert summary_dir.exists()
 
     def test_creates_csv_per_section(self, tmp_path):
@@ -229,9 +235,7 @@ class TestCompileResults:
             reaction_type="RER",
         )
 
-        from larest.output import slugify
-
-        summary_dir = tmp_path / "Monomer" / slugify(_MONOMER_SMILES) / "summary"
+        summary_dir = get_mol_dir(Monomer(_MONOMER_SMILES), tmp_path) / "summary"
         for section in _SECTIONS:
             assert (summary_dir / f"{section}.csv").exists()
 
@@ -259,9 +263,7 @@ class TestCompileResults:
 
         import pandas as pd
 
-        from larest.output import slugify
-
-        summary_dir = tmp_path / "Monomer" / slugify(_MONOMER_SMILES) / "summary"
+        summary_dir = get_mol_dir(Monomer(_MONOMER_SMILES), tmp_path) / "summary"
         df = pd.read_csv(summary_dir / "rdkit.csv")
         row = df[df["polymer_length"] == n].iloc[0]
 
@@ -311,9 +313,7 @@ class TestCompileResults:
 
         import pandas as pd
 
-        from larest.output import slugify
-
-        summary_dir = tmp_path / "Monomer" / slugify(_MONOMER_SMILES) / "summary"
+        summary_dir = get_mol_dir(Monomer(_MONOMER_SMILES), tmp_path) / "summary"
         df = pd.read_csv(summary_dir / "rdkit.csv")
         row = df[df["polymer_length"] == n].iloc[0]
 
@@ -344,9 +344,7 @@ class TestCompileResults:
             reaction_type="RER",
         )
 
-        from larest.output import slugify
-
-        summary_dir = tmp_path / "Monomer" / slugify(_MONOMER_SMILES) / "summary"
+        summary_dir = get_mol_dir(Monomer(_MONOMER_SMILES), tmp_path) / "summary"
         df = pd.read_csv(summary_dir / "rdkit.csv")
         inf_row = df[np.isinf(df["polymer_length"])].iloc[0]
 
@@ -374,9 +372,7 @@ class TestCompileResults:
 
         import numpy as np
 
-        from larest.output import slugify
-
-        summary_dir = tmp_path / "Monomer" / slugify(_MONOMER_SMILES) / "summary"
+        summary_dir = get_mol_dir(Monomer(_MONOMER_SMILES), tmp_path) / "summary"
         df = pd.read_csv(summary_dir / "rdkit.csv")
         assert len(df) == 4  # 3 finite lengths + 1 inf row
         finite = df[np.isfinite(df["polymer_length"])]
@@ -433,13 +429,9 @@ class TestRunPipelineMocked:
         When run_rdkit is mocked we must create it ourselves so results.json
         can be written.
         """
-        from larest.output import create_dir, slugify
+        from larest.output import create_dir
 
-        match mol:
-            case Polymer():
-                d = tmp_path / "Polymer" / f"{slugify(mol.monomer_smiles)}_{mol.length}"
-            case _:
-                d = tmp_path / type(mol).__name__ / slugify(mol.smiles)
+        d = get_mol_dir(mol, tmp_path)
         create_dir(d)
         return d
 
@@ -586,7 +578,7 @@ class TestCLIIntegration:
             check=True,
         )
 
-        polymer_results = list((output_dir / "Polymer").glob("*_2/results.json"))
+        polymer_results = list((output_dir / "Polymer").glob("*_2_*/results.json"))
         assert len(polymer_results) == 1
 
     def test_cli_creates_summary_csv(self, tmp_path):
@@ -622,3 +614,125 @@ class TestCLIIntegration:
         df = pd.read_csv(csv_path)
         finite = df[np.isfinite(df["polymer_length"])]
         assert set(finite["polymer_length"].astype(int).tolist()) == {2}
+
+
+# ---------------------------------------------------------------------------
+# main (mocked pipeline)
+# ---------------------------------------------------------------------------
+
+
+def _fake_run_pipeline(mol, output_dir, config):
+    """Stand-in for run_pipeline returning simple additive energies."""
+    dir_path = get_mol_dir(mol, output_dir)
+    xyz = dir_path / "xtb" / "crest" / "crest_best.xtbopt.xyz"
+    create_dir(xyz.parent)
+    xyz.write_text(f"1\n{mol.smiles}\nO 0.0 0.0 0.0\n")
+
+    match mol:
+        case Polymer():
+            value = -100_000.0 * mol.length - 45_000.0 - 1_000.0 / mol.length
+        case Initiator():
+            value = -40_000.0
+        case _:
+            value = -100_000.0
+    params: dict[str, float | None] = {
+        "E": value,
+        "H": value + 50.0,
+        "S": 100.0,
+        "G": value - 2_000.0,
+    }
+    return MolResults(smiles=mol.smiles, sections={"crest": params}, dir_path=dir_path)
+
+
+class TestMain:
+    def _config(self, reaction_type, initiator, monomers, lengths):
+        return {
+            "steps": {
+                "rdkit": False,
+                "crest_confgen": True,
+                "censo": False,
+                "crest_entropy": False,
+                "xtb": True,
+            },
+            "thermo": {"temperature": 298.15, "solvent": "toluene"},
+            "reaction": {
+                "type": reaction_type,
+                "initiator": initiator,
+                "lengths": lengths,
+                "monomers": [{"smiles": m, "group": None} for m in monomers],
+            },
+            "crest": {"confgen": {}, "entropy": {}},
+            "xtb": {"alpb": "toluene"},
+            "censo": {"general": {}},
+        }
+
+    def _run(self, tmp_path, config):
+        with patch("larest.main.run_pipeline", side_effect=_fake_run_pipeline) as mock:
+            main(tmp_path, config)
+        return mock
+
+    def test_auto_initiator_per_monomer(self, tmp_path):
+        config = self._config("ROR", "auto", ["O=C1CCCO1", "O=C1CCCN1"], [1, 2])
+        mock = self._run(tmp_path, config)
+        initiators = {
+            call.args[0].smiles
+            for call in mock.call_args_list
+            if isinstance(call.args[0], Initiator)
+        }
+        assert initiators == {"COC(C)=O", "CNC(C)=O"}
+        polymers = [
+            call.args[0]
+            for call in mock.call_args_list
+            if isinstance(call.args[0], Polymer)
+        ]
+        assert {p.initiator_smiles for p in polymers} == initiators
+
+    def test_writes_summary_and_results(self, tmp_path):
+        config = self._config("ROR", "CO", ["O=C1CCCO1"], [1, 2])
+        self._run(tmp_path, config)
+
+        summary = (tmp_path / "larest_summary.txt").read_text()
+        assert "Monomer check" in summary
+        assert "Energy matrix G (crest" in summary
+        assert "Initiator:          CO" in summary
+
+        results_dir = (
+            tmp_path / "results" / get_mol_dir(Monomer("O=C1CCCO1"), tmp_path).name
+        )
+        for name in ("monomer", "initiator", "polymer_n1", "polymer_n2"):
+            assert (results_dir / f"{name}.xyz").exists()
+        assert (results_dir / "summary" / "energy_matrix" / "crest_G.csv").exists()
+        data = json.loads((results_dir / "results.json").read_text())
+        assert data["initiator"] == "CO"
+        assert data["monomer"]["group"] == "L"
+        matrix = data["energy_matrices"]["crest"]["E"]
+        # E^1_1 = P1 - M - I = (-146000 + 100000 + 40000) / 1000
+        assert matrix["1"]["1"] == pytest.approx(-6.0)
+
+    def test_invalid_monomer_skipped(self, tmp_path):
+        config = self._config("RER", "", ["CCCC", "not_a_smiles", "O=C1CCCO1"], [2])
+        mock = self._run(tmp_path, config)
+        assert all(call.args[0].smiles != "CCCC" for call in mock.call_args_list)
+        summary = (tmp_path / "larest_summary.txt").read_text()
+        assert "SKIPPED - monomer is not cyclic" in summary
+        assert "SKIPPED - invalid SMILES" in summary
+        assert "Monomer [3/3]: O=C1CCCO1" in summary
+
+    def test_ror_without_initiator_runs_nothing(self, tmp_path):
+        config = self._config("ROR", "", ["O=C1CCCO1"], [1])
+        mock = self._run(tmp_path, config)
+        mock.assert_not_called()
+
+    def test_failed_polymer_reported(self, tmp_path):
+        config = self._config("RER", "", ["O=C1CCCO1"], [2, 3])
+
+        def flaky(mol, output_dir, config):
+            if isinstance(mol, Polymer) and mol.length == 3:
+                raise RuntimeError("boom")
+            return _fake_run_pipeline(mol, output_dir, config)
+
+        with patch("larest.main.run_pipeline", side_effect=flaky):
+            main(tmp_path, config)
+        summary = (tmp_path / "larest_summary.txt").read_text()
+        assert "FAILED" in summary
+        assert "pipeline failed for polymer of length 3" in summary

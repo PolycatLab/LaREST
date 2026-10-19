@@ -27,6 +27,7 @@ n_cores = 8
 
 [thermo]
 temperature = 298.15                  # K; temperature for all H/S/G calculations
+solvent = "toluene"                   # implicit solvent for every stage, or "gas"
 
 # REACTION --------------
 
@@ -38,7 +39,8 @@ monomers = [                          # monomer SMILES to evaluate
     "O=C1OCCCC1",
 ]
 lengths = [2, 3, 4]                   # polymer chain lengths
-# initiator = "C1=CC=C(C=C1)CO"      # required for ROR only
+# initiator = "auto"                 # required for ROR only: a SMILES, or "auto"
+                                      # for the isodesmic initiator of each monomer
 
 # STEPS -----------------
 

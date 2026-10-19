@@ -8,8 +8,11 @@ sequential sub-stages of increasing DFT accuracy:
 2. ``censo_optimization`` — DFT geometry optimisation
 3. ``censo_refinement``   — high-accuracy single-point refinement
 
-Thermodynamic parameters (H, G) are extracted from the CENSO output at each
-sub-stage, and entropy is derived as S = (H - G) / T.
+Thermodynamic parameters (E, H, G) are extracted per conformer from the
+``<n>_<PART>.json`` files written by CENSO at each sub-stage, with the enthalpy
+correction taken from CENSO's xTB mRRHO calculations.  Both Boltzmann-averaged
+and lowest free energy conformer values are reported, and entropy is derived as
+S = (H - G) / T.
 """
 
 from __future__ import annotations
@@ -23,7 +26,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from larest.constants import CENSO_SECTIONS, HARTTREE_TO_JMOL, THERMODYNAMIC_PARAMS
+from larest.constants import (
+    CENSO_PARTS,
+    CENSO_SECTIONS,
+    GAS_CONSTANT,
+    HARTTREE_TO_JMOL,
+    MIN_SUFFIX,
+    THERMODYNAMIC_PARAMS,
+)
 from larest.output import create_dir
 from larest.setup import parse_command_args
 
@@ -44,6 +54,64 @@ def _resolve_censo_paths(user_paths: dict[str, str]) -> dict[str, str]:
         key: user_paths.get(key) or shutil.which(exe) or fallback
         for key, exe in _CENSO_PATH_EXECUTABLES.items()
     }
+
+
+def _get_censo_config_fields() -> dict[str, set[str]] | None:
+    """Return the settings CENSO recognises in each ``.censo2rc`` section.
+
+    Read from CENSO's own configuration models, or ``None`` if they cannot be
+    imported (e.g. a different CENSO version).
+    """
+    try:
+        from censo.config.parts_config import PartsConfig
+    except Exception:
+        logger.debug("Could not import CENSO configuration models")
+        return None
+    return {
+        section: set(field.annotation.model_fields)
+        for section, field in PartsConfig.model_fields.items()
+        if hasattr(field.annotation, "model_fields")
+    }
+
+
+def check_censo_config(config: dict[str, Any]) -> list[str]:
+    """Warn about ``[censo.*]`` settings that CENSO will silently ignore.
+
+    CENSO ignores unrecognised keys in ``.censo2rc``, so a misspelt or
+    outdated setting (e.g. ``bhess``, which CENSO 3 no longer supports) would
+    otherwise have no effect without any warning.
+
+    Parameters
+    ----------
+    config : dict[str, Any]
+        Full pipeline configuration dict.
+
+    Returns
+    -------
+    list[str]
+        The unrecognised settings, as ``"[section] key"`` strings.
+    """
+    fields = _get_censo_config_fields()
+    if fields is None:
+        return []
+    unknown: list[str] = []
+    for header, sub_config in config.get("censo", {}).items():
+        if header == "cli" or not isinstance(sub_config, dict):
+            continue
+        if header not in fields:
+            unknown.append(f"[{header}]")
+            continue
+        unknown.extend(
+            f"[{header}] {key}"
+            for key in sub_config
+            if key.replace("-", "_") not in fields[header]
+        )
+    if unknown:
+        logger.warning(
+            "CENSO does not recognise these settings, which will be ignored: %s",
+            ", ".join(unknown),
+        )
+    return unknown
 
 
 def create_censorc(config: dict[str, Any], temp_dir: Path) -> None:
@@ -202,6 +270,8 @@ def run_censo(
     ------
     subprocess.CalledProcessError
         If the CENSO process exits with a non-zero return code.
+    RuntimeError
+        If CENSO wrote no per-stage results files.
     """
     temp_dir = output_dir / "temp"
     create_censorc(config=config, temp_dir=temp_dir)
@@ -244,8 +314,13 @@ def run_censo(
             check=True,
         )
 
-    censo_results: dict[str, dict[str, float | None]] = parse_censo_output(
-        censo_output_file=censo_output_file,
+    if get_last_censo_section(censo_dir) is None:
+        raise RuntimeError(
+            f"CENSO finished but wrote no <n>_<PART>.json results in {censo_dir}; "
+            "check the CENSO version (LaREST expects CENSO 3) and censo.txt",
+        )
+    censo_results: dict[str, dict[str, float | None]] = parse_censo_results(
+        censo_dir=censo_dir,
         temperature=config["censo"]["general"].get("temperature", 298.15),
     )
 
@@ -257,136 +332,195 @@ def run_censo(
     return censo_results
 
 
-def parse_censo_output(
-    censo_output_file: Path,
-    temperature: float,
-) -> dict[str, dict[str, float | None]]:
-    """Extract per-sub-stage thermodynamic parameters from a CENSO output file.
+def parse_censo_part(
+    censo_dir: Path,
+    section: str,
+) -> list[dict[str, Any]]:
+    """Read the per-conformer energies of one CENSO sub-stage.
 
-    Scans for ``"part0"``, ``"part1"``, ``"part2"``, ``"part3"`` markers and
-    reads Boltzmann-averaged H and G values from each.  Entropy is derived as
-    ``S = (H - G) / T``.  Values are converted from Hartree to J/mol.
+    CENSO writes ``<n>_<PART>.json`` with, for every conformer, the DFT
+    ``energy``, the solvation free energy ``gsolv``, the mRRHO free energy
+    correction ``grrho`` and their sum ``gtot`` (all in Hartree).  The matching
+    enthalpy correction is not stored by CENSO, so it is taken from the same
+    xTB mRRHO calculation (``<n>_<PART>/<CONF>/xtb_rrho/xtb_rrho.out``) as
+    ``TOTAL ENTHALPY - TOTAL ENERGY``.
+
+    For every conformer the following are returned (J/mol):
+
+    * ``E = energy + gsolv`` — the electronic energy, including implicit
+      solvation.  In the optimisation stage the geometry is optimised in
+      solvent, so ``energy`` already includes solvation and ``gsolv`` is zero.
+    * ``H = E + H_mRRHO`` — assuming the solvation enthalpy equals ``gsolv``.
+    * ``G = E + G_mRRHO`` (CENSO's ``gtot``).
+
+    ``H`` and ``G`` are ``None`` where no mRRHO contribution was evaluated
+    (e.g. the prescreening stage), since ``E + gsolv`` is not a free energy.
 
     Parameters
     ----------
-    censo_output_file : Path
-        Path to the plain-text CENSO output file.
+    censo_dir : Path
+        CENSO working directory (``<molecule>/censo``).
+    section : str
+        CENSO section name, a key of :data:`~larest.constants.CENSO_PARTS`.
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        One dict per conformer with keys ``conformer`` (e.g. ``"CONF3"``),
+        ``E``, ``H``, ``G`` (J/mol or ``None``) and ``gtot`` (Hartree, used for
+        ranking), sorted by ascending ``gtot``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the sub-stage JSON file does not exist.
+    """
+    part = CENSO_PARTS[section]
+    part_file = censo_dir / f"{part}.json"
+    data: dict[str, dict[str, float]] = json.loads(part_file.read_text())["data"]
+
+    conformers: list[dict[str, Any]] = []
+    for conformer, values in data.items():
+        e = (values["energy"] + values.get("gsolv", 0.0)) * HARTTREE_TO_JMOL
+        h_corr = _parse_xtb_rrho_enthalpy(
+            censo_dir / part / conformer / "xtb_rrho" / "xtb_rrho.out",
+        )
+        has_rrho = values.get("grrho", 0.0) != 0.0
+        conformers.append(
+            {
+                "conformer": conformer,
+                "E": e,
+                "H": e + h_corr * HARTTREE_TO_JMOL
+                if (has_rrho and h_corr is not None)
+                else None,
+                "G": values["gtot"] * HARTTREE_TO_JMOL if has_rrho else None,
+                "gtot": values["gtot"],
+            },
+        )
+    conformers.sort(key=lambda conf: conf["gtot"])
+    return conformers
+
+
+def _parse_xtb_rrho_enthalpy(xtb_rrho_output_file: Path) -> float | None:
+    """Return the xTB mRRHO enthalpy correction (Hartree) from an xTB output file.
+
+    The correction is ``TOTAL ENTHALPY - TOTAL ENERGY`` (ZPVE plus thermal
+    enthalpy), or ``None`` if the file or either value is missing.
+    """
+    if not xtb_rrho_output_file.exists():
+        return None
+    energy = enthalpy = None
+    with open(xtb_rrho_output_file) as fstream:
+        for line in fstream:
+            if "TOTAL ENERGY" in line:
+                energy = float(line.split()[3])
+            elif "TOTAL ENTHALPY" in line:
+                enthalpy = float(line.split()[3])
+    if energy is None or enthalpy is None:
+        logger.warning(f"Failed to extract mRRHO enthalpy from {xtb_rrho_output_file}")
+        return None
+    return enthalpy - energy
+
+
+def parse_censo_results(
+    censo_dir: Path,
+    temperature: float,
+) -> dict[str, dict[str, float | None]]:
+    """Extract per-sub-stage thermodynamic parameters from a CENSO run.
+
+    For each CENSO sub-stage two sections are returned:
+
+    * ``<section>`` — Boltzmann-averaged ``E``, ``H``, ``G`` over the
+      conformer ensemble, weighted by CENSO's ``gtot`` populations at
+      *temperature* (as in CENSO's own ``avE``/``avG``).
+    * ``<section>_min`` — values of the lowest free energy (``gtot``)
+      conformer.
+
+    Entropy is derived as ``S = (H - G) / T``.  See :func:`parse_censo_part`
+    for how the energies are defined.
+
+    Parameters
+    ----------
+    censo_dir : Path
+        CENSO working directory (``<molecule>/censo``).
     temperature : float
-        Temperature in Kelvin used to derive entropy from H and G.
+        Temperature in Kelvin used for the Boltzmann weights and entropy.
 
     Returns
     -------
     dict[str, dict[str, float | None]]
-        Nested dict mapping each CENSO section (``"censo_prescreening"``,
-        ``"censo_screening"``, ``"censo_optimization"``, ``"censo_refinement"``) to a
-        thermodynamic parameter dict with keys ``"H"``, ``"S"``, ``"G"``
-        (J/mol).  A value is ``None`` if it could not be extracted.
+        Mapping of section name to ``{"E", "H", "S", "G"}`` (J/mol, J/mol/K).
+        Values are ``None`` where they could not be computed (sub-stage not
+        run, or no mRRHO contribution).
     """
-    # WARN: cannot use fromkeys, otherwise they all point to the same mutable dict
-    censo_output: dict[str, dict[str, float | None]] = {
-        section: dict.fromkeys(THERMODYNAMIC_PARAMS, None) for section in CENSO_SECTIONS
-    }
+    censo_output: dict[str, dict[str, float | None]] = {}
+    for section in CENSO_SECTIONS:
+        average: dict[str, float | None] = dict.fromkeys(THERMODYNAMIC_PARAMS, None)
+        minimum: dict[str, float | None] = dict.fromkeys(THERMODYNAMIC_PARAMS, None)
+        censo_output[section] = average
+        censo_output[f"{section}{MIN_SUFFIX}"] = minimum
 
-    logger.debug(f"Searching for CENSO results in file {censo_output_file}")
-    with open(censo_output_file) as fstream:
-        section_no: int = 0
-        for i, line in enumerate(fstream):
-            if f"part{section_no}" in line:
-                try:
-                    censo_output[CENSO_SECTIONS[section_no]]["H"] = (
-                        float(line.split()[1]) * HARTTREE_TO_JMOL
-                    )
-                    censo_output[CENSO_SECTIONS[section_no]]["G"] = (
-                        float(line.split()[2]) * HARTTREE_TO_JMOL
-                    )
-                except Exception:
-                    logger.exception(
-                        f"Failed to extract H and G from line {i}: {line}",
-                    )
-                else:
-                    section_no += 1
+        try:
+            conformers = parse_censo_part(censo_dir, section)
+        except FileNotFoundError:
+            logger.debug(f"No CENSO results for {section} in {censo_dir}")
+            continue
+        except Exception:
+            logger.exception(f"Failed to parse CENSO results for {section}")
+            continue
+        if not conformers:
+            continue
 
-    for params in censo_output.values():
-        if params["H"] is not None and params["G"] is not None:
-            params["S"] = (params["H"] - params["G"]) / temperature
-        if not all(v is not None for v in params.values()):
-            logger.warning(
-                f"Failed to extract necessary data from {censo_output_file}",
+        g_min = conformers[0]["gtot"]
+        weights = [
+            math.exp(
+                -(conf["gtot"] - g_min)
+                * HARTTREE_TO_JMOL
+                / (GAS_CONSTANT * temperature),
             )
-            logger.warning("Missing data will be assigned None")
-        logger.debug(
-            f"Found enthalpy: {params['H']}, free energy: {params['G']}, entropy {params['S']}",
-        )
+            for conf in conformers
+        ]
+        total_weight = sum(weights)
+        for param in ("E", "H", "G"):
+            values = [conf[param] for conf in conformers]
+            minimum[param] = values[0]
+            if all(value is not None for value in values):
+                average[param] = (
+                    sum(w * v for w, v in zip(weights, values, strict=True))
+                    / total_weight
+                )
+        for params in (average, minimum):
+            if params["H"] is not None and params["G"] is not None:
+                params["S"] = (params["H"] - params["G"]) / temperature
+        logger.debug(f"{section}: average {average}, minimum {minimum}")
 
     return censo_output
 
 
-def parse_best_censo_conformers(
-    censo_output_file: Path,
-) -> dict[str, str]:
-    """Identify the highest-ranked conformer in each CENSO sub-stage.
-
-    Scans the CENSO output for ``"Highest ranked conformer"`` lines and
-    records the associated conformer ID (e.g. ``"CONF5"``) for each sub-stage.
-    Missing entries fall back to ``"CONF0"`` with a logged warning.
+def get_best_censo_conformer(censo_dir: Path, section: str) -> str:
+    """Return the ID (e.g. ``"CONF5"``) of the lowest free energy conformer.
 
     Parameters
     ----------
-    censo_output_file : Path
-        Path to the plain-text CENSO output file.
+    censo_dir : Path
+        CENSO working directory (``<molecule>/censo``).
+    section : str
+        CENSO section name, a key of :data:`~larest.constants.CENSO_PARTS`.
 
     Returns
     -------
-    dict[str, str]
-        Mapping of CENSO section name to the ID of the top-ranked conformer
-        in that section, e.g. ``{"censo_refinement": "CONF5", ...}``.
+    str
+        Conformer ID with the lowest ``gtot`` in that sub-stage.
     """
-    best_censo_conformers: dict[str, str] = {}
+    return parse_censo_part(censo_dir, section)[0]["conformer"]
 
-    logger.debug(f"Searching for results in file {censo_output_file}")
-    section_no: int = 0
-    current_conf: str | None = None
-    in_results_table: bool = False
 
-    with open(censo_output_file) as fstream:
-        for i, line in enumerate(fstream):
-            # Each stage's final results table is headed by a dashed line containing
-            # "RESULTS".  The rows are sorted by ΔGtot ascending, so the first CONF
-            # row is the best conformer.  Reset on each new header so intermediate
-            # tables (e.g. "Converged or removed conformers") don't interfere.
-            if "--" in line and "RESULTS" in line:
-                in_results_table = True
-                current_conf = None
-            elif in_results_table and current_conf is None:
-                token = line.split()[0] if line.split() else ""
-                if token.startswith("CONF") and token[4:].isdigit():
-                    current_conf = token
-            elif f"<<==part{section_no}==" in line and section_no < len(CENSO_SECTIONS):
-                section = CENSO_SECTIONS[section_no]
-                if current_conf:
-                    best_censo_conformers[section] = current_conf
-                else:
-                    logger.warning(
-                        f"Could not find conformer ID for {section} at line {i}",
-                    )
-                in_results_table = False
-                current_conf = None
-                section_no += 1
-
-    if len(best_censo_conformers) < len(CENSO_SECTIONS):
-        logger.warning(
-            f"Failed to extract best conformers from {censo_output_file}",
-        )
-        logger.warning("Missing sections will be assigned first conformer (CONF1)")
-        for section in CENSO_SECTIONS:
-            best_censo_conformers.setdefault(section, "CONF1")
-
-    for section in CENSO_SECTIONS:
-        logger.debug(
-            f"Best conformer in {section}: {best_censo_conformers[section]}",
-        )
-
-    return best_censo_conformers
+def get_last_censo_section(censo_dir: Path) -> str | None:
+    """Return the last CENSO sub-stage with results in *censo_dir*, if any."""
+    for section in reversed(CENSO_SECTIONS):
+        if (censo_dir / f"{CENSO_PARTS[section]}.json").exists():
+            return section
+    return None
 
 
 def extract_best_conformer_xyz(

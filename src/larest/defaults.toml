@@ -18,6 +18,11 @@ n_cores = 1
 
 [thermo]
 temperature = 298.15
+# solvent sets implicit solvation for every stage: --alpb for xTB and CREST and
+# the CENSO solvent (SMD by default). Use "gas" for gas-phase calculations.
+# Per-stage solvation keys ([xtb].alpb, [crest.*].alpb, [censo.general].solvent
+# or gas_phase) override it.
+solvent = "toluene"
 
 # LOGGING ---------------
 
@@ -87,7 +92,6 @@ precision = 6
 parallel = 1
 gfn = 2
 ohess = "vtight"
-alpb = "toluene"
 etemp = 298.15
 
 # CREST -----------------
@@ -95,12 +99,10 @@ etemp = 298.15
 [crest.confgen]
 T = 1
 gfn2 = true
-alpb = "toluene"
 
 [crest.entropy]
 T = 1
 gfn2 = true
-alpb = "toluene"
 
 # CENSO -----------------
 
@@ -112,7 +114,6 @@ optimization = true
 refinement = true
 
 [censo.general]
-solvent = "toluene"
 
 [censo.prescreening]
 threshold = 4.0

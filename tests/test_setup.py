@@ -9,6 +9,7 @@ from larest.setup import (
     _apply_temperature,
     _deep_merge,
     get_config,
+    normalise_monomers,
     parse_command_args,
 )
 
@@ -160,7 +161,9 @@ class TestGetConfig:
             '[reaction]\nmonomers = ["C1CC(=O)O1"]\nlengths = [2]\n',
         )
         config = get_config(config_file)
-        assert config["reaction"]["monomers"] == ["C1CC(=O)O1"]
+        assert config["reaction"]["monomers"] == [
+            {"smiles": "C1CC(=O)O1", "group": None},
+        ]
         # defaults should be present
         assert "rdkit" in config
         assert config["rdkit"]["n_conformers"] == 50
@@ -176,3 +179,73 @@ class TestGetConfig:
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             get_config(tmp_path / "nonexistent.toml")
+
+
+class TestSolvent:
+    def _config(self, tmp_path, text=""):
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(text)
+        return get_config(config_file)
+
+    def test_default_solvent_propagates(self, tmp_path):
+        config = self._config(tmp_path)
+        assert config["xtb"]["alpb"] == "toluene"
+        assert config["crest"]["confgen"]["alpb"] == "toluene"
+        assert config["crest"]["entropy"]["alpb"] == "toluene"
+        assert config["censo"]["general"]["solvent"] == "toluene"
+        assert config["censo"]["general"]["gas_phase"] is False
+
+    def test_custom_solvent(self, tmp_path):
+        config = self._config(tmp_path, '[thermo]\nsolvent = "thf"\n')
+        assert config["xtb"]["alpb"] == "thf"
+        assert config["censo"]["general"]["solvent"] == "thf"
+
+    @pytest.mark.parametrize("value", ['"gas"', "false", '"none"'])
+    def test_gas_phase(self, tmp_path, value):
+        config = self._config(tmp_path, f"[thermo]\nsolvent = {value}\n")
+        assert config["xtb"]["alpb"] is False
+        assert config["crest"]["confgen"]["alpb"] is False
+        assert config["crest"]["entropy"]["alpb"] is False
+        assert config["censo"]["general"]["gas_phase"] is True
+        assert "--alpb" not in parse_command_args(["xtb"], config)
+
+    def test_user_stage_setting_preserved(self, tmp_path, caplog):
+        config = self._config(
+            tmp_path,
+            '[thermo]\nsolvent = "gas"\n[xtb]\nalpb = "water"\n',
+        )
+        assert config["xtb"]["alpb"] == "water"
+        assert config["censo"]["general"]["gas_phase"] is True
+        assert "Implicit solvation differs between stages" in caplog.text
+
+    def test_user_censo_gas_phase_still_gets_solvent(self, tmp_path):
+        config = self._config(tmp_path, "[censo.general]\ngas_phase = false\n")
+        assert config["censo"]["general"]["gas_phase"] is False
+        assert config["censo"]["general"]["solvent"] == "toluene"
+
+    def test_user_censo_solvent_kept(self, tmp_path):
+        config = self._config(tmp_path, '[censo.general]\nsolvent = "chcl3"\n')
+        assert config["censo"]["general"]["solvent"] == "chcl3"
+        assert config["censo"]["general"]["gas_phase"] is False
+
+    def test_user_gbsa_not_overridden(self, tmp_path):
+        config = self._config(tmp_path, '[xtb]\ngbsa = "water"\n')
+        assert "alpb" not in config["xtb"]
+
+
+class TestNormaliseMonomers:
+    def test_strings_and_tables(self, tmp_path):
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            "[reaction]\n"
+            'monomers = ["C1CC(=O)O1", { smiles = "O=C1OCCC(=O)N1", group = "oA" }]\n',
+        )
+        config = get_config(config_file)
+        assert config["reaction"]["monomers"] == [
+            {"smiles": "C1CC(=O)O1", "group": None},
+            {"smiles": "O=C1OCCC(=O)N1", "group": "oA"},
+        ]
+
+    def test_invalid_entry_raises(self):
+        with pytest.raises(ValueError, match="Invalid monomer"):
+            normalise_monomers({"reaction": {"monomers": [{"group": "L"}]}})

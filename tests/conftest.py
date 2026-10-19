@@ -157,10 +157,5 @@ def rdkit_results_file():
 
 
 @pytest.fixture
-def censo_output_file():
-    return DATA_DIR / "censo_output.txt"
-
-
-@pytest.fixture
 def censo_conformers_xyz_file():
     return DATA_DIR / "censo_conformers.xyz"

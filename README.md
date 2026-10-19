@@ -126,16 +126,31 @@ The most important section — defines what to compute.
 
 ```toml
 [reaction]
-type = "RER"                  # "RER" (no initiator) or "ROR" (with initiator)
-monomers = ["O=C1OCC1"]      # list of monomer SMILES
-lengths = [2, 3, 4]           # polymer chain lengths to evaluate
-initiator = "C1=CC=C(C=C1)CO" # initiator SMILES (required for ROR only)
+type = "ROR"                  # "RER" (no initiator) or "ROR" (with initiator)
+monomers = ["O=C1OCC1"]       # list of monomer SMILES
+lengths = [1, 2, 3]           # polymer chain lengths to evaluate
+initiator = "auto"            # initiator SMILES, or "auto" (required for ROR only)
 ```
 
-Two initiator types are recognised for ROR reactions:
+Each monomer is first checked (cyclic, supported functional group, ring size,
+unassigned stereochemistry) and skipped if it cannot be ring-opened. When a
+monomer has several breakable bonds, the highest priority group is opened
+(lactone > thionolactone > thiolactone > dithiolactone > lactam > thiolactam >
+carbonates).
 
-- **Alcohol (R–OH)** — e.g. `"CCO"` (ethanol). The O–H bond breaks; one chain end becomes a hydroxyl, the other a methyl ester.
-- **Formate ester (HC(=O)–OR)** — e.g. `"COC=O"` (methyl formate). The acyl C–O bond breaks; both chain ends become esters (`HC(=O)–O–` at the ring-O end, `–C(=O)–OCH3` at the acyl end).
+Supported ROR initiators are water (`"O"`), alcohols (e.g. `"CO"`), and
+esters, thioesters and amides (e.g. methyl acetate, `"CC(=O)OC"`).
+`initiator = "auto"` chooses the isodesmic initiator for each monomer (e.g.
+methyl acetate for lactones, N-methylacetamide for lactams). See
+[docs/configuration.md](docs/configuration.md) for details.
+
+### `[thermo]`
+
+```toml
+[thermo]
+temperature = 298.15  # K, used by every stage
+solvent = "toluene"   # implicit solvent for every stage, or "gas"
+```
 
 ### `[steps]`
 
@@ -170,7 +185,7 @@ Options passed directly as CLI flags to the `xtb` binary, except `temperature`. 
 | `temperature` | Thermostatistical temperature in K for H/S/G (inherited from `[thermo].temperature`) |
 | `etemp` | Electronic (Fermi-smearing) temperature in K — a numerical SCF parameter, not the thermostatistical T |
 | `gfn` | GFN-xTB method level (0, 1, or 2) |
-| `alpb` | Implicit solvent (e.g. `"toluene"`) |
+| `alpb` | Implicit solvent (default from `[thermo].solvent`) |
 | `ohess` | Hessian level after optimisation (e.g. `"vtight"`) |
 | `parallel` | Number of CPU threads |
 
@@ -182,13 +197,13 @@ Options passed directly as CLI flags to `crest`. Separate sections control the c
 |---|---|
 | `T` | Number of CPU threads |
 | `gfn2` / `gfnff` | Level of theory for CREST |
-| `alpb` | Implicit solvent |
+| `alpb` | Implicit solvent (default from `[thermo].solvent`) |
 | `ewin` | Energy window for conformer ensemble (kcal/mol) |
 | `rthr` | RMSD threshold for conformer deduplication (Å) |
 
 ### `[censo.*]`
 
-Controls the four CENSO DFT sub-stages. Each sub-stage (`prescreening`, `screening`, `optimization`, `refinement`) has its own section with `func`, `basis`, `sm`, and `threshold` keys. The `[censo.general]` section sets global CENSO settings including `temperature` (inherited from `[thermo]`), `solvent`, and `gas_phase` (set `true` to run in the gas phase, overriding all solvation settings).
+Controls the four CENSO DFT sub-stages. Each sub-stage (`prescreening`, `screening`, `optimization`, `refinement`) has its own section with `func`, `basis`, `sm`, and `threshold` keys. The `[censo.general]` section sets global CENSO settings including `temperature`, `solvent`, and `gas_phase` (all inherited from `[thermo]` unless set here).
 
 > [!NOTE]
 > Keys under `[censo.*]` are written verbatim into CENSO's `.censo2rc`, and CENSO
@@ -198,41 +213,11 @@ Controls the four CENSO DFT sub-stages. Each sub-stage (`prescreening`, `screeni
 
 ## Output
 
-All results are written under the output directory with the following structure:
-
-```
-output/
-  Monomer/<smiles_slug>/
-    rdkit/
-      conformers.sdf          # all MMFF conformers
-      xtb/rdkit/results.csv   # xTB H, S, G for each conformer
-    crest_confgen/
-      crest_best.xyz          # lowest-energy CREST conformer
-      crest_conformers.xyz    # full CREST ensemble
-    censo/
-      censo.txt               # raw CENSO output
-      results.json            # parsed H, S, G for each sub-stage
-      3_REFINEMENT.xyz        # refined conformer ensemble
-    crest_entropy/
-      crest.txt               # raw CREST entropy output
-      results.json            # S_conf, S_rrho, S_total
-    results.json              # merged results across all sections
-    summary/
-      rdkit.csv               # ΔH, ΔS, ΔG vs polymer length (RDKit level)
-      crest.csv               # ΔH, ΔS, ΔG vs polymer length (CREST level)
-      censo_refinement.csv    # ΔH, ΔS, ΔG vs polymer length (DFT level)
-      censo_corrected.csv     # ΔH, ΔS, ΔG with CREST entropy correction
-
-  Polymer/<smiles_slug>_<length>/
-    ...                       # same structure as Monomer
-
-  Initiator/<smiles_slug>/
-    ...                       # same structure as Monomer
-
-  larest.log                  # full pipeline log
-```
-
-The `summary/` CSVs are the primary output, containing per-polymer-length reaction thermodynamics (ΔH, ΔS, ΔG in J/mol) at each level of theory. The `censo_corrected` section combines CENSO `censo_refinement` enthalpies with the CREST conformational entropy.
+All results are written under the output directory. The most useful files are
+collected in `larest_summary.txt` (a human-readable overview of the run) and
+`results/<monomer>/` (final structures, summary CSVs, energy matrices and a
+machine-readable `results.json`). See [docs/output.md](docs/output.md) for the
+full structure and definitions.
 
 ## Development
 

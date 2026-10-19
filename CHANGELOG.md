@@ -2,6 +2,80 @@
 
 ## Unreleased
 
+### Features
+
+- **Monomer check** (`chem.analyse_monomer`): rings, ring sizes, functional groups,
+  the bond opened and its ring size, and unassigned stereochemistry are reported;
+  acyclic monomers or monomers without a supported group are skipped. Bond priority:
+  lactone > thionolactone > thiolactone > dithiolactone > lactam > thiolactam
+  (new) > carbonates and derivatives. Monomers can be given as
+  `{ smiles = "...", group = "..." }` to open a different group.
+- **More initiators**: water and esters/thioesters/amides (e.g. methyl acetate) in
+  addition to alcohols and formates.
+- **`initiator = "auto"`**: the isodesmic initiator is chosen per monomer (methyl
+  acetate for lactones, N-methylacetamide for lactams, dimethyl carbonate for
+  carbonates, ...), so monomers needing different initiators can be run together.
+- **Electronic energies**: `E` is reported alongside H, S and G at every stage.
+- **Lowest-conformer CENSO results**: each CENSO stage has a Boltzmann-averaged
+  section (`censo_<stage>`) and a lowest free energy conformer section
+  (`censo_<stage>_min`).
+- **Energy matrices** (`energy_matrix.py`): Eⁿ₀, Eⁿₙ and incremental energies IEⁿₘ for
+  E, H and G, with the 1/n extrapolation and its R² (warning below 0.8), written to
+  `summary/energy_matrix/`.
+- **Run summary and collected results** (`report.py`): `larest_summary.txt` gives an
+  overview of the settings, monomer checks, initiators, completed calculations,
+  thermodynamics and energy matrices; `results/<monomer>/` collects the final
+  structures (`.xyz`), summary CSVs and a machine-readable `results.json`.
+- **`[thermo].solvent`**: one setting for implicit solvation in every stage (`"gas"`
+  for gas phase), like `[thermo].temperature`.
+- **`larest-migrate`** (`migrate.py`): renames molecule directories from older LaREST
+  versions (`<slug>`, `<monomer slug>_<n>`) to the current `<slug>_<hash>` naming,
+  using the config of the old run, so old runs resume and CENSO results are re-derived
+  without re-running DFT. Dry run by default (`--apply` to move); never overwrites, and
+  directories shared by several molecules (legacy slug collisions) are left in place
+  with a warning.
+
+### Bug Fixes
+
+- **CENSO enthalpy and entropy were wrong** (`censo.py`): CENSO's `avE` (the DFT
+  electronic energy, without thermal corrections or solvation) was stored as `H`, so
+  `S = (H - G) / T = -(ΔGsolv + GmRRHO) / T` was meaningless (typically negative) and
+  ΔH was really ΔE. Results are now read per conformer from CENSO's `<n>_<PART>.json`
+  files: `E = E(DFT) + ΔGsolv`, `G = Gtot`, and `H = E + H_mRRHO`, with the enthalpy
+  correction taken from the same xTB mRRHO calculation CENSO uses for `G`. ΔG is
+  unchanged. For the β-propiolactone example (RER, n = 2) ΔH changes from −54.5 to
+  −44.5 kJ/mol and ΔS from −128 to −94 J/mol/K. Existing runs are corrected on resume
+  without re-running CENSO.
+- **Different molecules could share an output directory** (`output.py`, `main.py`):
+  `slugify` drops `=`, `#`, `/` and `\`, so e.g. an alkene and the matching alkane (M1
+  and M1-H2, or BiL= and BiL) mapped to the same directory and the second silently
+  reused the first's checkpointed results. Directories are now `<slug>_<hash>` with a
+  hash of the full SMILES; polymer directories hash the polymer SMILES, so changing
+  the initiator or reaction type no longer reuses old polymers. **Old output
+  directories are not resumed** unless migrated with `larest-migrate` (see Features).
+- **Wrong bond broken for α-alkylidene lactones in ROR** (`chem.py`): for e.g.
+  α-methylene-γ-butyrolactone the C–C(=O) bond was cleaved instead of the acyl–O
+  bond. RER results were unaffected.
+- **Unrecognised CENSO settings were silently ignored** (`censo.py`): CENSO drops
+  unknown `.censo2rc` keys, and `config/reference.toml` listed several that CENSO 3 no
+  longer supports (`bhess`, `scale`, `consider_sym`, `rmsdbias`, `retry_failed`, each
+  part's `run`, `implicit`). LaREST now warns about unrecognised `[censo.*]` keys at the
+  start of a run (checked against CENSO's own configuration models), and the reference
+  config lists the CENSO 3.0.6 keys (sub-stages are enabled through `[censo.cli]`).
+- **Carbonate/carbamate ROR products had the initiator on the wrong end**
+  (`chem.py`): e.g. trimethylene carbonate + methanol gave a peroxide. Breakable bonds
+  are now defined with atom-mapped SMARTS (acyl carbon first, ring bonds only).
+- **Changed settings silently reused old results** (`checkpoint.py`): each stage now
+  records its settings in `<stage>/larest_settings.json` and is re-run if they change
+  (core counts excluded).
+- **`censo_corrected` paired the CREST conformational entropy with Boltzmann-averaged
+  CENSO values**; it now uses the lowest free energy refinement conformer (the CREST
+  entropy reference structure), following Grimme and co-workers.
+- **`crest_entropy` failed when CENSO was disabled**; it now falls back to the CREST or
+  RDKit best structure.
+
+## v0.0.1
+
 ### Testing
 
 - **Added pytest test suite** (`tests/`): 132 unit tests covering all modules except CENSO/ORCA

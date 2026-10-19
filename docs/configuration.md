@@ -2,7 +2,7 @@
 
 Pipeline behaviour is controlled by a `config.toml` file. User settings are **deep-merged** on top of the built-in defaults in `src/larest/defaults.toml`, so you only need to set values that differ from defaults.
 
-A minimal starting point is `config/example.config`. The full reference is `config/reference.toml`.
+A minimal starting point is `config/example.toml`. The full reference is `config/reference.toml`.
 
 ## `[reaction]`
 
@@ -10,23 +10,61 @@ The most important section — defines what to compute.
 
 ```toml
 [reaction]
-type = "RER"                         # "RER" (no initiator) or "ROR" (with initiator)
-monomers = ["O=C1OCC1"]             # list of monomer SMILES
-lengths = [2, 3, 4]                  # polymer chain lengths to evaluate
-initiator = "C1=CC=C(C=C1)CO"       # initiator SMILES (required for ROR only)
+type = "ROR"                         # "RER" (no initiator) or "ROR" (with initiator)
+monomers = [                         # monomer SMILES, or tables with a group override
+    "O=C1OCC1",
+    { smiles = "O=C1OCCC(=O)N1", group = "oA" },
+]
+lengths = [1, 2, 3]                  # polymer chain lengths to evaluate
+initiator = "auto"                   # initiator SMILES or "auto" (required for ROR only)
 ```
 
-- **RER** (Ring Equilibrium Reaction) requires `lengths >= 2`.
-- **ROR** (Ring-Opening polymerization Reaction) requires `lengths >= 1` and an `initiator` SMILES.
+- **RER** (Ring Expansion Reaction) builds cyclic oligomers and requires `lengths >= 2`.
+- **ROR** (Ring-Opening Reaction) requires `lengths >= 1` and an `initiator`.
+
+### Monomer check
+
+Before any calculation, each monomer is checked: it must be cyclic and contain
+at least one supported ring-opening functional group. LaREST reports the number
+and sizes of the rings, the functional groups found, the bond that will be
+broken and the size of the ring it belongs to, and any stereocentres without an
+assigned configuration (conformer generation would otherwise mix
+stereoisomers, so specify stereochemistry in the SMILES). Unsuitable monomers
+are skipped. The results appear in `larest_summary.txt`.
+
+The bond broken is between the acyl carbon (C=O or C=S) and the ring
+heteroatom. When several breakable bonds are present, the highest priority
+group is opened:
+
+| Priority | Group | Key |
+|---|---|---|
+| 1 | lactone | `L` |
+| 2 | thionolactone | `tnL` |
+| 3 | thiolactone | `tL` |
+| 4 | dithiolactone | `dtL` |
+| 5 | lactam | `Lm` |
+| 6 | thiolactam | `tLm` |
+| 7 | carbonates and derivatives (not yet benchmarked) | `CC`, `CtC`, `CdtC`, `CtnC`, `CX`, `CtX`, `oA` |
+
+Give a monomer as a table with a `group` key to open a different group.
 
 ### Supported initiator types
 
-| Type | Example SMILES | Bond broken | Chain ends |
+| Type | Example SMILES | Bond broken | Product (γ-butyrolactone, n = 1) |
 |---|---|---|---|
-| Alcohol (R–OH) | `CCO` (ethanol) | O–H | `HO–[chain]–C(=O)–OR` |
-| Formate ester (HC(=O)–OR) | `COC=O` (methyl formate) | C(formyl)–O | `HC(=O)–O–[chain]–C(=O)–OCH3` |
+| Water | `O` | O–H | `HO–C(=O)–(CH2)3–OH` (hydrolysis) |
+| Alcohol (R–OH) | `CO` (methanol) | O–H | `MeO–C(=O)–(CH2)3–OH` (methanolysis) |
+| Ester / thioester / amide | `CC(=O)OC` (methyl acetate) | acyl C–X | `MeO–C(=O)–(CH2)3–O–C(=O)Me` (isodesmic) |
+| `"auto"` | — | — | isodesmic initiator chosen per monomer |
 
-Methyl formate is a non-symmetric initiator: it breaks its acyl C–O bond rather than an O–H bond, so **both** chain termini become ester groups (a formate ester at the ring-O end, a methyl ester at the acyl end). Any formate ester (`HC(=O)–OR`) is supported — the alkyl group `R` caps the acyl end.
+With `initiator = "auto"`, each monomer gets the acyclic analogue of its
+ring-opening group, so the reaction is isodesmic (the types of bonds broken and
+formed are conserved), as recommended by Houk, Hall and co-workers: methyl
+acetate for lactones, O-methyl thioacetate for thionolactones, S-methyl
+thioacetate for thiolactones, methyl dithioacetate for dithiolactones,
+N-methylacetamide for lactams, dimethyl carbonate for carbonates, and so on.
+Monomers needing different initiators can therefore be run together; each
+initiator is computed once and shared between monomers.
 
 ## `[parallelisation]`
 
@@ -71,6 +109,27 @@ temperature = 298.15    # K; the temperature at which H, S and G are evaluated
 | CENSO | `[censo.general].temperature` | written to `.censo2rc` `[general]` |
 | CREST confgen | `[crest.confgen].temp` | `--temp N` |
 | CREST entropy | `[crest.entropy].temp` | `--temp N` |
+
+`solvent` sets the implicit solvation of every stage in the same way:
+
+```toml
+[thermo]
+solvent = "toluene"     # or "gas" for gas-phase calculations
+```
+
+| Stage | Config key set |
+|---|---|
+| xTB | `[xtb].alpb` |
+| CREST confgen / entropy | `[crest.confgen].alpb`, `[crest.entropy].alpb` |
+| CENSO | `[censo.general].solvent` and `gas_phase` |
+
+With `solvent = "gas"` (or `"none"`, `"vacuum"`, `false`), ALPB is switched
+off for xTB and CREST and `gas_phase = true` is set for CENSO. A stage for which
+you set a solvation key yourself (e.g. `[xtb].alpb`, `[xtb].gbsa`,
+`[censo.general].gas_phase`) keeps your setting; LaREST logs a warning if the
+stages end up with different solvation. Note that xTB/CREST (ALPB) and CENSO
+(SMD by default) may name some solvents differently; override per stage if
+needed.
 
 `temperature` is the single source of truth for every H/S/G calculation: it sets
 the temperature at which each tool evaluates the free energy **and** the `T` used
@@ -128,7 +187,7 @@ temperature, and it is used to derive `S = (H − G) / T`.
 | `temperature` | from `[thermo]` | Thermostatistical temperature (K) for H/S/G; injected via `$thermo`. Inherited from `[thermo].temperature` unless set here |
 | `etemp` | `298.15` | Electronic (Fermi-smearing) temperature (K) — a numerical SCF parameter, **not** the thermostatistical temperature |
 | `gfn` | `2` | GFN-xTB method level (0, 1, 2) |
-| `alpb` | `"toluene"` | ALPB implicit solvent |
+| `alpb` | from `[thermo].solvent` | ALPB implicit solvent |
 | `ohess` | `"vtight"` | Hessian level after optimisation |
 | `parallel` | `1` | Number of CPU threads |
 
@@ -141,7 +200,7 @@ All keys are passed directly as CLI flags to the `crest` binary. Separate sectio
 | `T` | `1` | Number of CPU threads |
 | `temp` | from `[thermo]` | Temperature (K) for Boltzmann weighting (`--temp`). Inherited from `[thermo].temperature` unless set here |
 | `gfn2` / `gfnff` | | Level of theory |
-| `alpb` | `"toluene"` | ALPB implicit solvent |
+| `alpb` | from `[thermo].solvent` | ALPB implicit solvent |
 | `ewin` | `6.0` | Energy window for ensemble (kcal/mol) |
 | `rthr` | `0.125` | RMSD threshold for deduplication (Å) |
 
@@ -161,10 +220,10 @@ The `[censo.general]` section sets global CENSO settings:
 | Key | Default | Description |
 |---|---|---|
 | `temperature` | from `[thermo]` | Temperature (K) for mRRHO/thermostatistics; used to derive `S = (H − G) / T`. Inherited from `[thermo].temperature` unless set here |
-| `solvent` | `"toluene"` | Solvent for implicit solvation |
+| `solvent` | from `[thermo].solvent` | Solvent for implicit solvation |
 | `sm_rrho` | `"alpb"` | Solvation model for the mRRHO contribution |
 | `evaluate_rrho` | `true` | Include the GFN2-xTB mRRHO (thermal + entropy) contribution |
-| `gas_phase` | `false` | Run all calculations in the gas phase, overriding **all** solvation settings |
+| `gas_phase` | from `[thermo].solvent` | Run all calculations in the gas phase, overriding **all** solvation settings |
 
 > **Note — key names must match CENSO's fields exactly.** Keys in `[censo.*]`
 > are written verbatim into CENSO's `.censo2rc`, and CENSO **silently ignores**

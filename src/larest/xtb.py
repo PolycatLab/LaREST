@@ -121,9 +121,10 @@ def parse_xtb_output(
     xtb_output_file: Path,
     temperature: float,
 ) -> dict[str, float | None]:
-    """Extract H, S, and G from an xTB plain-text output file.
+    """Extract E, H, S, and G from an xTB plain-text output file.
 
-    Scans for ``"TOTAL ENTHALPY"`` and ``"TOTAL FREE ENERGY"`` markers.
+    Scans for ``"TOTAL ENERGY"``, ``"TOTAL ENTHALPY"`` and ``"TOTAL FREE ENERGY"``
+    markers.
     Values are converted from Hartree to J/mol.  Entropy is computed as
     ``S = (H - G) / T``.
 
@@ -138,7 +139,7 @@ def parse_xtb_output(
     Returns
     -------
     dict[str, float | None]
-        Dict with keys ``"H"``, ``"S"``, ``"G"`` (all in J/mol).  Any value
+        Dict with keys ``"E"``, ``"H"``, ``"S"``, ``"G"`` (J/mol, S in J/mol/K).  Any value
         that could not be extracted is ``None``; a warning is logged in that
         case.
     """
@@ -147,7 +148,14 @@ def parse_xtb_output(
     logger.debug(f"Searching for xTB results in file {xtb_output_file}")
     with open(xtb_output_file) as fstream:
         for i, line in enumerate(fstream):
-            if "TOTAL ENTHALPY" in line:
+            if "TOTAL ENERGY" in line:
+                try:
+                    xtb_output["E"] = float(line.split()[3]) * HARTTREE_TO_JMOL
+                except Exception:
+                    logger.exception(
+                        f"Failed to extract total energy from line {i}: {line}",
+                    )
+            elif "TOTAL ENTHALPY" in line:
                 try:
                     xtb_output["H"] = float(line.split()[3]) * HARTTREE_TO_JMOL
                 except Exception:
@@ -168,7 +176,8 @@ def parse_xtb_output(
         logger.warning(f"Failed to extract necessary data from {xtb_output_file}")
         logger.warning("Missing data will be assigned None")
     logger.debug(
-        f"Found enthalpy: {xtb_output['H']}, entropy: {xtb_output['S']}, free energy {xtb_output['G']}",
+        f"Found energy: {xtb_output['E']}, enthalpy: {xtb_output['H']}, "
+        f"entropy: {xtb_output['S']}, free energy {xtb_output['G']}",
     )
 
     return xtb_output

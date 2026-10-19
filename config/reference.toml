@@ -19,8 +19,14 @@
 # [xtb].temperature, [censo.general].temperature, [crest.confgen].temp, and
 # [crest.entropy].temp unless those keys are set explicitly per-stage.
 
+# solvent is a single top-level setting for implicit solvation. It is propagated
+# to [xtb].alpb, [crest.confgen].alpb, [crest.entropy].alpb and
+# [censo.general].solvent / gas_phase unless a solvation key is set per-stage.
+# Use "gas" (or "none", "vacuum", false) for gas-phase calculations.
+
 # [thermo]
 # temperature = 298.15  # canonical thermostatistical temperature (default: 298.15)
+# solvent = "toluene"   # implicit solvent for all stages, or "gas" (default: "toluene")
 
 # LOGGING -----------
 
@@ -64,11 +70,17 @@ xtb = true                # run xTB re-ranking after rdkit and crest_confgen
 
 [reaction]
 type = "RER"              # reaction type ["RER", "ROR"]
-                          #   RER: Ring Equilibrium Reaction (requires lengths >= 2)
-                          #   ROR: Ring-Opening polymerization Reaction (requires lengths >= 1)
+                          #   RER: Ring Expansion Reaction (requires lengths >= 2)
+                          #   ROR: Ring-Opening Reaction (requires lengths >= 1)
 lengths = [2, 3, 4]       # list of polymer chain lengths
-initiator = ""            # initiator SMILES (required for ROR)
-monomers = []             # list of monomer SMILES strings
+initiator = ""            # initiator for ROR: a SMILES string (water "O", an alcohol
+                          # e.g. "CO", or an ester/thioester/amide e.g. "CC(=O)OC"),
+                          # or "auto" for the isodesmic initiator of each monomer
+monomers = []             # list of monomer SMILES strings, or tables selecting the
+                          # functional group to open, e.g.
+                          # { smiles = "O=C1OCCC(=O)N1", group = "oA" }
+                          # groups by priority: L, tnL, tL, dtL, Lm, tLm, CC, CtC,
+                          # CdtC, CtnC, CX, CtX, oA
 
 # RDKIT -------------
 
@@ -97,7 +109,7 @@ parallel = 16             # --parallel N (number of CPU threads)
 gfn = 2                   # --gfn N (GFN-xTB method level: 0, 1, 2)
 # gfnff = true            # --gfnff (use GFN-FF instead of GFN-xTB)
 ohess = "vtight"          # --ohess <level> (hessian after optimisation: tight, vtight, ...)
-alpb = "toluene"          # --alpb <solvent> (ALPB implicit solvation)
+alpb = "toluene"          # --alpb <solvent> (ALPB implicit solvation; default from [thermo].solvent)
 verbose = true            # --verbose (verbose output)
 json = true               # --json (write JSON output)
 acc = 1.0                 # --acc <val> (numerical accuracy)
@@ -180,7 +192,9 @@ temp = 298.15             # --temp <val> (temperature for Boltzmann weighting in
 
 # CENSO -------------
 # Keys under [censo.cli] are passed as --key value flags to the CENSO CLI.
-# All other [censo.*] sections are written verbatim to .censo2rc.
+# All other [censo.*] sections are written verbatim to .censo2rc. CENSO
+# silently ignores keys it does not recognise; LaREST warns about them at the
+# start of a run. The keys below are those of CENSO 3.0.6.
 
 [censo.paths]
 # Paths to external executables written to .censo2rc [paths].
@@ -193,25 +207,24 @@ temp = 298.15             # --temp <val> (temperature for Boltzmann weighting in
 
 [censo.cli]
 maxcores = 8              # --maxcores N (max CPU cores for CENSO)
+prescreening = true       # --prescreening (run the prescreening step, censo_prescreening)
+screening = true          # --screening (run the screening step, censo_screening)
+optimization = true       # --optimization (run the optimisation step, censo_optimization)
+refinement = true         # --refinement (run the refinement step, censo_refinement)
 
 [censo.general]
 temperature = 298.15      # temperature in K (used to compute S = (H - G) / T); inherited from [thermo].temperature unless set here
 imagthr = -100.0          # threshold for imaginary frequencies (cm-1)
-sthr = 25.0               # entropy threshold (cm-1)
-scale = 1.0               # frequency scaling factor
-solvent = "toluene"       # solvent for implicit solvation
+sthr = 50.0               # rotor cutoff (cm-1) for the mRRHO treatment of low frequencies
+solvent = "toluene"       # solvent for implicit solvation (default from [thermo].solvent)
 sm_rrho = "alpb"          # solvation model for RRHO ["alpb", "gbsa"]
 evaluate_rrho = true      # include RRHO contribution
-consider_sym = true       # consider molecular symmetry
-bhess = true              # use biased hessian approximation
-rmsdbias = false          # apply RMSD bias
 balance = true            # balance calculation workload
-gas_phase = false         # run gas-phase calculation (overrides all solvation settings)
+gas_phase = false         # run gas-phase calculation (overrides all solvation settings; default from [thermo].solvent)
 copy_mo = true            # copy MO files between calculations
-retry_failed = true       # retry failed calculations
+ignore_failed = false     # continue if some conformer calculations fail
 
 [censo.prescreening]
-run = true                # enable prescreening step (censo_prescreening)
 threshold = 4.0           # energy window threshold (kcal/mol)
 func = "pbe-d4"           # DFT functional
 basis = "def2-SV(P)"      # basis set
@@ -220,18 +233,16 @@ gfnv = "gfn2"             # GFN version for RRHO ["gfn1", "gfn2", "gfnff"]
 template = false          # use input template file
 
 [censo.screening]
-run = true                # enable screening step (censo_screening)
 threshold = 3.0           # energy window threshold (kcal/mol)
 func = "r2scan-3c"        # DFT functional
 basis = "def2-TZVP"       # basis set
 prog = "orca"             # QM program
 sm = "smd"                # solvation model ["smd", "cpcm", "cosmo"]
 gfnv = "gfn2"             # GFN version for RRHO
-implicit = true           # use implicit solvation
+gsolv_included = false    # solvation already included in the DFT energy (otherwise computed separately)
 template = false          # use input template file
 
 [censo.optimization]
-run = true                # enable optimisation step (censo_optimization)
 threshold = 2.0           # energy window threshold (kcal/mol)
 macrocycles = true        # use macrocycle optimisation
 optcycles = 4             # number of optimisation cycles per macrocycle
@@ -248,44 +259,11 @@ optlevel = "normal"       # optimisation convergence level ["crude", "loose", "n
 template = false          # use input template file
 
 [censo.refinement]
-run = true                # enable refinement step (censo_refinement)
 threshold = 1.0           # energy window threshold (kcal/mol)
 func = "wb97x-v"          # DFT functional
 basis = "def2-TZVP"       # basis set
 prog = "orca"             # QM program
 sm = "smd"                # solvation model
 gfnv = "gfn2"             # GFN version for RRHO
-implicit = true           # use implicit solvation
-template = false          # use input template file
-
-[censo.nmr]
-run = false               # enable NMR property calculation
-resonance_frequency = 300.0  # spectrometer frequency (MHz)
-ss_cutoff = 8.0           # shift similarity cutoff (ppm)
-prog = "orca"             # QM program
-func_j = "pbe0-d4"        # functional for J-coupling
-basis_j = "def2-TZVP"     # basis for J-coupling
-sm_j = "smd"              # solvation model for J-coupling
-func_s = "pbe0-d4"        # functional for shieldings
-basis_s = "def2-TZVP"     # basis for shieldings
-sm_s = "smd"              # solvation model for shieldings
-gfnv = "gfn2"             # GFN version for RRHO
-template = false          # use input template file
-couplings = true          # calculate J-couplings
-fc_only = true            # use Fermi-contact only approximation
-shieldings = true         # calculate shielding constants
-h_active = true           # include 1H
-c_active = true           # include 13C
-f_active = false          # include 19F
-si_active = false         # include 29Si
-p_active = false          # include 31P
-
-[censo.uvvis]
-run = false               # enable UV/Vis property calculation
-prog = "orca"             # QM program
-func = "wb97x-d4"         # TD-DFT functional
-basis = "def2-TZVP"       # basis set
-sm = "smd"                # solvation model
-gfnv = "gfn2"             # GFN version for RRHO
-nroots = 20               # number of excited states
+gsolv_included = false    # solvation already included in the DFT energy (otherwise computed separately)
 template = false          # use input template file

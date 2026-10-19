@@ -202,7 +202,7 @@ def run_rdkit(
 
             xtb_results["conformer_id"].append(conformer_id)
             for param in THERMODYNAMIC_PARAMS:
-                xtb_results[param].append(xtb_output[param])
+                xtb_results[param].append(xtb_output.get(param))
 
     xtb_results_file = xtb_base_dir / "results.csv"
     logger.debug(f"Writing results to {xtb_results_file}")

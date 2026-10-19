@@ -50,7 +50,11 @@ class TestParseXtbOutput:
 
     def test_keys_present(self, xtb_output_file):
         result = parse_xtb_output(xtb_output_file, TEMPERATURE)
-        assert set(result.keys()) == {"H", "S", "G"}
+        assert set(result.keys()) == {"E", "H", "S", "G"}
+
+    def test_parses_total_energy(self, xtb_output_file):
+        result = parse_xtb_output(xtb_output_file, TEMPERATURE)
+        assert result["E"] == pytest.approx(-0.1235 * HARTTREE_TO_JMOL)
 
 
 class TestRunXtbMocked:

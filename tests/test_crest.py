@@ -110,20 +110,35 @@ class TestRunCrestEntropyMocked:
         censo_dir = dir_path / "censo"
         censo_dir.mkdir(parents=True)
 
-        # censo.txt with a Highest ranked conformer line
-        censo_txt = censo_dir / "censo.txt"
-        censo_txt.write_text(
-            "part0 -0.12 -0.11 x\n  Highest ranked conformer CONF1\n"
-            "part1 -0.22 -0.21 x\n  Highest ranked conformer CONF1\n"
-            "part2 -0.32 -0.31 x\n  Highest ranked conformer CONF1\n"
-            "part3 -0.42 -0.41 x\n  Highest ranked conformer CONF1\n",
+        # 3_REFINEMENT.json in which CONF2 has the lowest free energy
+        (censo_dir / "3_REFINEMENT.json").write_text(
+            json.dumps(
+                {
+                    "data": {
+                        "CONF1": {
+                            "energy": -0.42,
+                            "gsolv": 0.0,
+                            "grrho": 0.01,
+                            "gtot": -0.41,
+                        },
+                        "CONF2": {
+                            "energy": -0.43,
+                            "gsolv": 0.0,
+                            "grrho": 0.01,
+                            "gtot": -0.42,
+                        },
+                    },
+                },
+            ),
         )
 
-        # 3_REFINEMENT.xyz with CONF1
+        # 3_REFINEMENT.xyz with CONF1 and CONF2
         xyz = censo_dir / "3_REFINEMENT.xyz"
         xyz.write_text(
             "3\nCONF1 energy= -0.12345\n"
-            "O   0.0 0.0 0.0\nH   1.0 0.0 0.0\nH   0.0 1.0 0.0\n",
+            "O   0.0 0.0 0.0\nH   1.0 0.0 0.0\nH   0.0 1.0 0.0\n"
+            "3\nCONF2 energy= -0.12346\n"
+            "O   0.0 0.0 0.0\nH   2.0 0.0 0.0\nH   0.0 2.0 0.0\n",
         )
 
     def test_runs_crest_entropy(self, tmp_path, minimal_config):
@@ -138,6 +153,38 @@ class TestRunCrestEntropyMocked:
             result = run_crest_entropy(tmp_path, minimal_config)
 
         assert result == fake_results
+
+    def test_uses_lowest_free_energy_censo_conformer(self, tmp_path, minimal_config):
+        self._setup_censo_checkpoint(tmp_path)
+        fake_results = {"S_conf": 51.7, "S_rrho": 23.8, "S_total": 75.5}
+
+        with (
+            patch("larest.crest.subprocess.run") as mock_run,
+            patch("larest.crest.parse_crest_entropy_output", return_value=fake_results),
+        ):
+            run_crest_entropy(tmp_path, minimal_config)
+
+        reference = tmp_path / "censo" / "censo_best.xyz"
+        assert mock_run.call_args.args[0][1] == str(reference.absolute())
+        assert "CONF2" in reference.read_text()
+
+    def test_falls_back_to_crest_structure_without_censo(
+        self,
+        tmp_path,
+        minimal_config,
+    ):
+        crest_xyz = tmp_path / "crest_confgen" / "crest_best.xyz"
+        crest_xyz.parent.mkdir(parents=True)
+        crest_xyz.write_text("1\n\nO 0.0 0.0 0.0\n")
+        fake_results = {"S_conf": 51.7, "S_rrho": 23.8, "S_total": 75.5}
+
+        with (
+            patch("larest.crest.subprocess.run") as mock_run,
+            patch("larest.crest.parse_crest_entropy_output", return_value=fake_results),
+        ):
+            run_crest_entropy(tmp_path, minimal_config)
+
+        assert mock_run.call_args.args[0][1] == str(crest_xyz.absolute())
 
     def test_writes_results_json(self, tmp_path, minimal_config):
         self._setup_censo_checkpoint(tmp_path)
@@ -154,8 +201,8 @@ class TestRunCrestEntropyMocked:
         data = json.loads(results_json.read_text())
         assert data["S_total"] == pytest.approx(75.5)
 
-    def test_raises_when_no_censo_results(self, tmp_path, minimal_config):
-        with pytest.raises(ValueError, match="Failed to extract best CENSO conformer"):
+    def test_raises_when_no_reference_structure(self, tmp_path, minimal_config):
+        with pytest.raises(ValueError, match="Failed to find a reference structure"):
             run_crest_entropy(tmp_path, minimal_config)
 
 
