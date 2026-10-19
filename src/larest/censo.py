@@ -18,6 +18,7 @@ S = (H - G) / T.
 from __future__ import annotations
 
 import csv
+import importlib
 import json
 import logging
 import math
@@ -63,13 +64,14 @@ def _get_censo_config_fields() -> dict[str, set[str]] | None:
     imported (e.g. a different CENSO version).
     """
     try:
-        from censo.config.parts_config import PartsConfig
+        # imported dynamically as CENSO is an optional runtime dependency
+        parts_config = importlib.import_module("censo.config.parts_config")
     except Exception:
         logger.debug("Could not import CENSO configuration models")
         return None
     return {
         section: set(field.annotation.model_fields)
-        for section, field in PartsConfig.model_fields.items()
+        for section, field in parts_config.PartsConfig.model_fields.items()
         if hasattr(field.annotation, "model_fields")
     }
 

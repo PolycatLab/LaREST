@@ -309,6 +309,11 @@ def compile_results(
         )
 
     summary_dfs: dict[str, pd.DataFrame] = {}
+    initiator_sections = (
+        initiator_results.sections
+        if reaction_type == "ROR" and initiator_results is not None
+        else None
+    )
 
     for section in _thermodynamic_sections(monomer_results):
         summary: dict[str, list[float | None]] = {
@@ -325,8 +330,8 @@ def compile_results(
                     monomer_results.sections[section].get(param),
                 )
                 summary[f"initiator_{param}"].append(
-                    initiator_results.sections.get(section, {}).get(param)  # type: ignore[union-attr]
-                    if reaction_type == "ROR"
+                    initiator_sections.get(section, {}).get(param)
+                    if initiator_sections is not None
                     else 0,
                 )
 

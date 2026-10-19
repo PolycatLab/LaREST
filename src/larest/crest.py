@@ -291,12 +291,13 @@ def get_best_structure(dir_path: Path) -> Path | None:
     rdkit_results_file = dir_path / "xtb" / "rdkit" / "results.csv"
     if rdkit_results_file.exists():
         try:
-            conformer_id = int(
-                parse_best_rdkit_conformer(rdkit_results_file)["conformer_id"],  # type: ignore[arg-type]
-            )
+            best_id = parse_best_rdkit_conformer(rdkit_results_file)["conformer_id"]
         except Exception:
             logger.exception(f"Failed to read best RDKit conformer in {dir_path}")
             return None
+        if best_id is None:
+            return None
+        conformer_id = int(best_id)
         rdkit_xyz_file = (
             rdkit_results_file.parent
             / f"conformer_{conformer_id}"

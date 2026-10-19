@@ -490,11 +490,17 @@ def build_polymer(
                 f"Polymer chain with length={monomer_units}): {MolToSmiles(polymer)}",
             )
 
+    # the initiator caps the chain for ROR; a final monomer closes the ring for RER
+    terminal_smiles = (
+        initiator_smiles
+        if reaction_type == "ROR" and initiator_smiles
+        else monomer_smiles
+    )
     try:
         match reaction_type:
             case "ROR":
                 terminal_unit = get_polymer_unit(
-                    smiles=initiator_smiles,  # type: ignore[arg-type]
+                    smiles=terminal_smiles,
                     mol_type="initiator",
                     front_dummy="Xe",
                     back_dummy=front_dummy,
