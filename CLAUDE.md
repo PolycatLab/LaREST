@@ -14,7 +14,7 @@ conda activate larest
 pip install .
 ```
 
-CENSO and ORCA must be installed separately (see README).
+CENSO is installed by pip as a dependency (requires Python >= 3.12); ORCA must be installed separately (see README).
 
 ## Running LaREST
 
@@ -22,11 +22,11 @@ CENSO and ORCA must be installed separately (see README).
 # Local run
 larest <config.toml> -o <output_dir>
 
-# HPC (Imperial College PBS)
-qsub pipeline.sh
+# HPC (Imperial College PBS); CONFIG_FILE/OUTPUT_DIR default to config.toml/output
+qsub -v CONFIG_FILE=config.toml,OUTPUT_DIR=output pipeline.sh
 ```
 
-The `-c` flag points to a `config.toml` file. See `config/reference.toml` for documentation of all available options.
+The first argument is the `config.toml` file. See `config/reference.toml` for documentation of all available options.
 
 ## Development setup
 

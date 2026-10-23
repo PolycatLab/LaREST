@@ -4,6 +4,18 @@
 
 ### Features
 
+- **CREST conformer-generation defaults** (`defaults.toml`): `ewin = 2.0` kcal/mol,
+  `rthr = 0.5` Å and `ethr = 0.5` kcal/mol, following Broadbelt and co-workers (CREST's
+  own defaults were used before: 6.0, 0.125, 0.05). The CREST entropy run keeps CREST's
+  defaults.
+- **Settings checked before a run starts** (`setup.validate_reaction_config`): the
+  reaction type, lengths, monomer SMILES and initiator (a SMILES or `"auto"`) are
+  validated and all problems reported at once, with a hint when curly quotes from a
+  word processor are found.
+- **`pipeline.sh`**: `CONFIG_FILE` and `OUTPUT_DIR` can be set per job with
+  `qsub -v`, accept relative (to the submission directory) or absolute paths, and the
+  job stops with a clear message if the config file is missing.
+- **Installation docs** point to `PolycatLab/LaREST`.
 - **Monomer check** (`chem.analyse_monomer`): rings, ring sizes, functional groups,
   the bond opened and its ring size, and unassigned stereochemistry are reported;
   acyclic monomers or monomers without a supported group are skipped. Bond priority:

@@ -23,6 +23,9 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from rdkit.Chem.rdmolfiles import MolFromSmiles
+from rdkit.rdBase import BlockLogs
+
 logger = logging.getLogger(__name__)
 
 # Maps (config path, key) to the parallelisation key used by each stage.
@@ -233,6 +236,78 @@ def get_config(config_file: Path) -> dict[str, Any]:
     config = _apply_temperature(config, user_config)
     config = _apply_solvent(config, user_config)
     return normalise_monomers(config)
+
+
+_SMART_QUOTES = "\u201c\u201d\u2018\u2019"
+
+
+def _check_smiles(smiles: object, label: str) -> str | None:
+    """Return an error message if *smiles* is not a valid SMILES string."""
+    if not isinstance(smiles, str) or not smiles.strip():
+        return f"{label} must be a non-empty SMILES string (got {smiles!r})"
+    if any(quote in smiles for quote in _SMART_QUOTES):
+        return (
+            f'{label} {smiles!r} contains curly quotes; use straight quotes (") '
+            "in config.toml (curly quotes are often added by word processors)"
+        )
+    with BlockLogs():
+        if MolFromSmiles(smiles) is None:
+            return f"{label} {smiles!r} is not a valid SMILES string"
+    return None
+
+
+def validate_reaction_config(config: dict[str, Any]) -> list[str]:
+    """Check the ``[reaction]`` settings before any calculation is started.
+
+    Parameters
+    ----------
+    config : dict[str, Any]
+        Full pipeline configuration dict (after :func:`get_config`).
+
+    Returns
+    -------
+    list[str]
+        Human-readable problems; empty if the settings are valid.
+    """
+    reaction = config.get("reaction", {})
+    errors: list[str] = []
+
+    reaction_type = reaction.get("type")
+    if reaction_type not in ("RER", "ROR"):
+        errors.append(f'[reaction].type must be "RER" or "ROR" (got {reaction_type!r})')
+
+    lengths = reaction.get("lengths", [])
+    min_length = 2 if reaction_type == "RER" else 1
+    if not lengths:
+        errors.append("[reaction].lengths must list at least one polymer length")
+    errors.extend(
+        f"[reaction].lengths must be integers >= {min_length} for "
+        f"{reaction_type} (got {length!r})"
+        for length in lengths
+        if not isinstance(length, int)
+        or isinstance(length, bool)
+        or length < min_length
+    )
+
+    monomers = reaction.get("monomers", [])
+    if not monomers:
+        errors.append("[reaction].monomers must list at least one monomer SMILES")
+    for monomer in monomers:
+        smiles = monomer["smiles"] if isinstance(monomer, dict) else monomer
+        if (error := _check_smiles(smiles, "monomer")) is not None:
+            errors.append(error)
+
+    if reaction_type == "ROR":
+        initiator = reaction.get("initiator", "")
+        if not initiator:
+            errors.append(
+                '[reaction].initiator is required for ROR (a SMILES string or "auto")',
+            )
+        elif not (isinstance(initiator, str) and initiator.strip().lower() == "auto"):
+            error = _check_smiles(initiator, "[reaction].initiator")
+            if error is not None:
+                errors.append(f'{error}; use a SMILES string or "auto"')
+    return errors
 
 
 def normalise_monomers(config: dict[str, Any]) -> dict[str, Any]:

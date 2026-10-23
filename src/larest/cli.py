@@ -13,7 +13,7 @@ from pathlib import Path
 
 from larest import LAREST_HEADER
 from larest.main import main
-from larest.setup import get_config, get_logger
+from larest.setup import get_config, get_logger, validate_reaction_config
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,13 @@ def entry_point() -> None:
         config = get_config(config_file)
     except Exception as err:
         raise SystemExit(1) from err
+
+    errors = validate_reaction_config(config)
+    if errors:
+        print(f"Invalid settings in {config_file}:")  # noqa: T201
+        for error in errors:
+            print(f"  - {error}")  # noqa: T201
+        raise SystemExit(1)
 
     output_dir.mkdir(parents=True, exist_ok=True)
 

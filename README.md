@@ -17,16 +17,16 @@ Two reaction types are supported:
 ## Installation
 
 ```bash
-git clone https://github.com/Ryan-Reese/LaREST.git
+git clone https://github.com/PolycatLab/LaREST.git
 cd LaREST
 conda env create -f env.yaml
 conda activate larest
 pip install .
 ```
 
-This installs `xTB` and `CREST` (via conda) and `LaREST` itself (via pip) into the `larest` conda environment.
+This installs Python ≥ 3.12, `xTB` and `CREST` (via conda) and `LaREST` with `CENSO` (via pip) into the `larest` conda environment. Python 3.12 or later is required (CENSO 3 needs it).
 
-**ORCA** must be installed separately and available on your `PATH`. See the [ORCA website](https://orcaforum.kofo.mpg.de) for download instructions.
+**ORCA** must be installed separately and available on your `PATH` (before `/usr/bin`, which on some Linux systems contains an unrelated `orca` screen reader). See the [ORCA website](https://orcaforum.kofo.mpg.de) for download instructions. The shared-library ORCA builds need the matching OpenMPI version for parallel runs (e.g. `conda install -c conda-forge "openmpi>=4.1,<5"` for the `openmpi418` builds).
 
 ## Usage
 
@@ -55,6 +55,14 @@ Key variables to set in `pipeline.sh`:
 | `CONDA_DIR` | Path to the directory containing your conda binary |
 | `CONDA_ENV` | Conda environment name (default: `larest`) |
 | `N_CORES` | Number of cores matching the PBS `ncpus` directive |
+| `CONFIG_FILE` | Path to the config file (default `config.toml`) |
+| `OUTPUT_DIR` | Output directory (default `output`) |
+
+Relative paths are relative to the directory the job is submitted from. `CONFIG_FILE` and `OUTPUT_DIR` can also be set per job without editing the script:
+
+```bash
+qsub -v CONFIG_FILE=configs/gbl.toml,OUTPUT_DIR=runs/gbl pipeline.sh
+```
 
 ### Checkpointing
 

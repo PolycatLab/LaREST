@@ -205,8 +205,14 @@ All keys are passed directly as CLI flags to the `crest` binary. Separate sectio
 | `temp` | from `[thermo]` | Temperature (K) for Boltzmann weighting (`--temp`). Inherited from `[thermo].temperature` unless set here |
 | `gfn2` / `gfnff` | | Level of theory |
 | `alpb` | from `[thermo].solvent` | ALPB implicit solvent |
-| `ewin` | `6.0` | Energy window for ensemble (kcal/mol) |
-| `rthr` | `0.125` | RMSD threshold for deduplication (Å) |
+| `ewin` | `2.0` (confgen) | Energy window for ensemble (kcal/mol) |
+| `rthr` | `0.5` (confgen) | RMSD threshold for deduplication (Å) |
+| `ethr` | `0.5` (confgen) | Energy threshold for conformer comparison (kcal/mol) |
+
+The conformer-generation thresholds follow Broadbelt and co-workers (CREST's
+own defaults are `ewin = 6.0`, `rthr = 0.125`, `ethr = 0.05`). The entropy run
+keeps CREST's defaults, since a narrow window or coarse duplicate threshold
+would discard conformers that contribute to the conformational entropy.
 
 ## `[censo.*]`
 

@@ -11,6 +11,7 @@ from larest.setup import (
     get_config,
     normalise_monomers,
     parse_command_args,
+    validate_reaction_config,
 )
 
 
@@ -168,6 +169,14 @@ class TestGetConfig:
         assert "rdkit" in config
         assert config["rdkit"]["n_conformers"] == 50
 
+    def test_crest_confgen_thresholds(self, tmp_path):
+        config_file = tmp_path / "config.toml"
+        config_file.write_text("")
+        confgen = get_config(config_file)["crest"]["confgen"]
+        assert (confgen["ewin"], confgen["rthr"], confgen["ethr"]) == (2.0, 0.5, 0.5)
+        args = parse_command_args(["crest", "confgen"], get_config(config_file))
+        assert args[args.index("--ewin") + 1] == "2.0"
+
     def test_user_overrides_default(self, tmp_path):
         config_file = tmp_path / "config.toml"
         config_file.write_text("[rdkit]\nn_conformers = 5\n")
@@ -258,3 +267,78 @@ class TestNormaliseMonomers:
     def test_invalid_entry_raises(self):
         with pytest.raises(ValueError, match="Invalid monomer"):
             normalise_monomers({"reaction": {"monomers": [{"group": "L"}]}})
+
+
+class TestValidateReactionConfig:
+    def _config(self, **reaction):
+        base: dict[str, object] = {
+            "type": "ROR",
+            "lengths": [1, 2],
+            "initiator": "CO",
+            "monomers": [{"smiles": "O=C1CCCO1", "group": None}],
+        }
+        base.update(reaction)
+        return {"reaction": base}
+
+    def test_valid(self):
+        assert validate_reaction_config(self._config()) == []
+
+    @pytest.mark.parametrize("initiator", ["auto", "AUTO", " auto "])
+    def test_auto_initiator(self, initiator):
+        assert validate_reaction_config(self._config(initiator=initiator)) == []
+
+    def test_curly_quotes_explained(self):
+        errors = validate_reaction_config(self._config(initiator="“auto”"))
+        assert len(errors) == 1
+        assert "curly quotes" in errors[0]
+
+    def test_invalid_initiator(self):
+        errors = validate_reaction_config(self._config(initiator="not_a_smiles"))
+        assert "not a valid SMILES" in errors[0]
+
+    def test_missing_initiator_for_ror(self):
+        errors = validate_reaction_config(self._config(initiator=""))
+        assert "required for ROR" in errors[0]
+
+    def test_rer_ignores_initiator_and_checks_lengths(self):
+        errors = validate_reaction_config(
+            self._config(type="RER", initiator="", lengths=[1, 2]),
+        )
+        assert errors == [
+            "[reaction].lengths must be integers >= 2 for RER (got 1)",
+        ]
+
+    def test_bad_type_and_monomer(self):
+        errors = validate_reaction_config(
+            self._config(type="ROP", monomers=["C1CC(=O)O1", "xyz!"]),
+        )
+        assert any("type" in e for e in errors)
+        assert any("'xyz!'" in e for e in errors)
+
+
+def test_cli_reports_invalid_settings(tmp_path):
+    import subprocess
+    import sys
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        '[reaction]\ntype = "ROR"\nmonomers = ["O=C1CCCO1"]\nlengths = [1]\n'
+        'initiator = "“auto”"\n',
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from larest.cli import entry_point; entry_point()",
+            str(config_file),
+            "-o",
+            str(tmp_path / "out"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "curly quotes" in result.stdout
+    assert not (tmp_path / "out").exists()

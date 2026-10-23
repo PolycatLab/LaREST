@@ -102,6 +102,11 @@ etemp = 298.15
 [crest.confgen]
 T = 1
 gfn2 = true
+# ensemble sorting thresholds, following Broadbelt and co-workers (CREST's own
+# defaults are ewin = 6.0, rthr = 0.125, ethr = 0.05)
+ewin = 2.0    # energy window for the conformer ensemble (kcal/mol)
+rthr = 0.5    # RMSD threshold for distinct conformers (Angstrom)
+ethr = 0.5    # energy threshold for conformer comparison (kcal/mol)
 
 [crest.entropy]
 T = 1

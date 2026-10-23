@@ -15,11 +15,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install linting dependencies
-        # censo is a CLI tool not on PyPI, so we install the pip-available
-        # dependencies directly rather than going through ".[dev]"
+        # only the dependencies needed for linting and type checking (CENSO is
+        # not needed: LaREST imports it dynamically)
         run: pip install pre-commit ty pytest numpy pandas tqdm rdkit
 
       - uses: pre-commit/action@v3.0.1
