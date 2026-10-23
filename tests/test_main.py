@@ -474,6 +474,14 @@ class TestRunPipelineMocked:
 
         assert expected_dir.exists()
 
+    def test_run_pipeline_with_all_steps_disabled(self, tmp_path):
+        config = self._make_config()
+        config["steps"]["rdkit"] = False
+        mol = Monomer(_MONOMER_SMILES)
+        result = run_pipeline(mol, tmp_path, config)
+        assert (get_mol_dir(mol, tmp_path) / "results.json").exists()
+        assert result.sections["rdkit"]["G"] is None
+
     def test_run_pipeline_skips_disabled_steps(self, tmp_path):
         config = self._make_config()
         config["steps"]["rdkit"] = False

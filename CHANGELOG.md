@@ -8,6 +8,9 @@
   `rthr = 0.5` Å and `ethr = 0.5` kcal/mol, following Broadbelt and co-workers (CREST's
   own defaults were used before: 6.0, 0.125, 0.05). The CREST entropy run keeps CREST's
   defaults.
+- **Config file argument**: the config file can be given as the first argument or with
+  `-c`/`--config`, and defaults to `config.toml` in the current directory. A missing
+  config file is reported before anything is created.
 - **Settings checked before a run starts** (`setup.validate_reaction_config`): the
   reaction type, lengths, monomer SMILES and initiator (a SMILES or `"auto"`) are
   validated and all problems reported at once, with a hint when curly quotes from a

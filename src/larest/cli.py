@@ -1,7 +1,8 @@
 """Command-line interface entry point for LaREST.
 
-Parses ``config``, ``-o``/``--output``, and ``-v``/``--verbose``
-arguments, initialises the logger and configuration, then delegates to
+Parses the config file (positional or ``-c``/``--config``, default
+``config.toml``), ``-o``/``--output``, and ``-v``/``--verbose`` arguments,
+initialises the logger and configuration, then delegates to
 :func:`larest.main.main`.
 """
 
@@ -17,6 +18,8 @@ from larest.setup import get_config, get_logger, validate_reaction_config
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CONFIG_FILE = "config.toml"
+
 
 def entry_point() -> None:
     """Parse CLI arguments and launch the LaREST pipeline.
@@ -30,7 +33,18 @@ def entry_point() -> None:
     parser.add_argument(
         "config",
         type=str,
-        help="Path to config.toml",
+        nargs="?",
+        default=None,
+        help=f"Path to the config file (default: {DEFAULT_CONFIG_FILE})",
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        dest="config_option",
+        metavar="CONFIG",
+        default=None,
+        help="Path to the config file (alternative to the positional argument)",
     )
     parser.add_argument(
         "-o",
@@ -47,8 +61,17 @@ def entry_point() -> None:
     )
     args = parser.parse_args()
 
+    if args.config and args.config_option and args.config != args.config_option:
+        parser.error(
+            f"two different config files given ({args.config} and "
+            f"{args.config_option}); use one",
+        )
     output_dir = Path(args.output).resolve()
-    config_file = Path(args.config).resolve()
+    config_file = Path(
+        args.config_option or args.config or DEFAULT_CONFIG_FILE,
+    ).resolve()
+    if not config_file.is_file():
+        parser.error(f"config file not found: {config_file}")
 
     try:
         config = get_config(config_file)

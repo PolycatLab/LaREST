@@ -166,6 +166,7 @@ def run_pipeline(
     # standard-state conversion is applied to the reported results only
     results = apply_standard_state(results, config)
 
+    create_dir(dir_path)
     results_file = dir_path / "results.json"
     logger.debug(f"Writing final results to {results_file}")
     with open(results_file, "w") as fstream:

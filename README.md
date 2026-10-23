@@ -33,10 +33,10 @@ This installs Python ≥ 3.12, `xTB` and `CREST` (via conda) and `LaREST` with `
 ### Running locally
 
 ```bash
-larest <config.toml> -o <output_dir>
+larest [config.toml] -o <output_dir>
 ```
 
-- `config` — path to `config.toml` (required)
+- `config` — path to the config file, given as the first argument or with `-c`/`--config` (default: `config.toml` in the current directory)
 - `-o` / `--output` — directory where all results are written (default: `./output`)
 - `-v` / `--verbose` — increase console log verbosity
 

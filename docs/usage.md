@@ -3,19 +3,19 @@
 ## Running locally
 
 ```bash
-larest <config.toml> -o <output_dir>
+larest [config.toml] -o <output_dir>
 ```
 
 | Argument | Description |
 |---|---|
-| `config` | Path to your `config.toml` (required) |
+| `config` / `-c` / `--config` | Path to the config file, as the first argument or with `-c` (default: `config.toml` in the current directory) |
 | `-o` / `--output` | Directory where all results are written (default: `./output`) |
 | `-v` / `--verbose` | Increase console log verbosity |
 
 **Example** — run the example config and write results to `./output`:
 
 ```bash
-larest config/example.config -o output/
+larest config/example.toml -o output/
 ```
 
 ## Running on HPC (Imperial College PBS)

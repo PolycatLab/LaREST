@@ -20,13 +20,13 @@ CENSO is installed by pip as a dependency (requires Python >= 3.12); ORCA must b
 
 ```bash
 # Local run
-larest <config.toml> -o <output_dir>
+larest [config.toml] -o <output_dir>
 
 # HPC (Imperial College PBS); CONFIG_FILE/OUTPUT_DIR default to config.toml/output
 qsub -v CONFIG_FILE=config.toml,OUTPUT_DIR=output pipeline.sh
 ```
 
-The first argument is the `config.toml` file. See `config/reference.toml` for documentation of all available options.
+The config file is the first argument or `-c`/`--config` (default `config.toml`). See `config/reference.toml` for documentation of all available options.
 
 ## Development setup
 
@@ -79,6 +79,7 @@ Tests live in `tests/` and are structured as follows:
 - `test_checkpoint.py` — `PipelineStage`, `restore_results`, settings stamps, legacy results, `apply_entropy_correction`
 - `test_energy_matrix.py` — energy matrix descriptors and 1/n extrapolation
 - `test_rdkit_stage.py` — `parse_best_rdkit_conformer`, `run_rdkit` (mocked + integration)
+- `test_cli.py` — command-line argument handling (config file default, `-c`)
 - `test_main.py` — `compile_results` delta calculations, `run_pipeline` orchestration, `main` (mocked pipeline: monomer check, auto initiator, summary/results output)
 
 Integration tests are marked `@pytest.mark.integration` and skipped by default. Pass `--integration` to enable them. CENSO/ORCA tests are not included as they require a full DFT installation.
